@@ -283,7 +283,7 @@ jpeg_writer_write(struct writer *writer)
 
 void
 jpeg_writer_init(struct writer *writer, write_fn_t write_fn, void *ctx,
-		 struct image *src)
+		 struct image *src, int progressive)
 {
     j_compress_ptr cinfo;
     struct oil_compress *oil_cinfo;
@@ -314,6 +314,9 @@ jpeg_writer_init(struct writer *writer, write_fn_t write_fn, void *ctx,
     oil_cinfo->in_buf = malloc(src->width * src->cmp);
 
     jpeg_set_defaults(cinfo);
+
+    if(progressive) 
+        jpeg_simple_progression(cinfo);
 
     writer->src = src;
     writer->data = cinfo;

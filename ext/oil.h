@@ -100,7 +100,7 @@ void ppm_writer_init(struct writer *w, write_fn_t write, void *ctx, struct image
 void jpeg_appinit(); // TODO: lazy init. Needs to be threadsafe.
 int jpeg_init(struct image *i, read_fn_t read, void *ctx, int sig_bytes);
 void jpeg_set_scale_denom(struct image *i, int denom);
-void jpeg_writer_init(struct writer *w, write_fn_t write, void *ctx, struct image *src);
+void jpeg_writer_init(struct writer *w, write_fn_t write, void *ctx, struct image *src, int progressive);
 
 int png_init(struct image *i, read_fn_t read, void *ctx, int sig_bytes);
 void png_writer_init(struct writer *w, write_fn_t write, void *ctx, struct image *src);

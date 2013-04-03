@@ -263,13 +263,13 @@ yield_resize(VALUE _writer)
 
 static void
 init_equivalent_writer(struct writer *writer, enum image_type type,
-		       struct image *src)
+		       struct image *src, int progressive)
 {
     switch (type) {
       case PPM:
         return ppm_writer_init(writer, rb_write_fn, 0, src);
       case JPEG:
-        return jpeg_writer_init(writer, rb_write_fn, 0, src);
+        return jpeg_writer_init(writer, rb_write_fn, 0, src, progressive);
       case PNG:
         return png_writer_init(writer, rb_write_fn, 0, src);
     }
@@ -283,13 +283,16 @@ init_equivalent_writer(struct writer *writer, enum image_type type,
  */
 
 static VALUE
-oil_each(VALUE self)
+oil_each(int argc, VALUE *argv, VALUE self)
 {
     struct image scale;
     struct writer writer;
     struct thumbdata *thumb;
     int state;
     long w, h;
+    VALUE progressive=Qtrue;
+
+    rb_scan_args(argc, argv, "01&", &progressive);
 
     Data_Get_Struct(self, struct thumbdata, thumb);
     check_initialized(thumb);
@@ -306,7 +309,8 @@ oil_each(VALUE self)
     else
 	cubic_init(&scale, thumb->reader, w, h);
 
-    init_equivalent_writer(&writer, thumb->out_type, &scale);
+    // cast progressive from anything to boolean value 
+    init_equivalent_writer(&writer, thumb->out_type, &scale, RTEST(progressive));
     rb_protect(yield_resize, (VALUE)&writer, &state);
 
     writer.free(&writer);
@@ -360,7 +364,7 @@ Init_oil()
     VALUE cOil = rb_define_class("Oil", rb_cObject);
     rb_define_alloc_func(cOil, allocate);
     rb_define_method(cOil, "initialize", initialize, -1);
-    rb_define_method(cOil, "each", oil_each, 0);
+    rb_define_method(cOil, "each", oil_each, -1);
     rb_define_method(cOil, "width", oil_width, 0);
     rb_define_method(cOil, "height", oil_height, 0);
     rb_define_method(cOil, "out_width", oil_out_width, 0);
