@@ -86,7 +86,7 @@ png_normalize_input(png_structp read_ptr, png_infop read_i_ptr)
     ctype = png_get_color_type(read_ptr, read_i_ptr);
 
     if (ctype == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
-      png_set_gray_1_2_4_to_8(read_ptr);
+      png_set_expand_gray_1_2_4_to_8(read_ptr);
 
     if (bit_depth < 8)
        png_set_packing(read_ptr);

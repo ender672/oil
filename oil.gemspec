@@ -1,5 +1,5 @@
 Gem::Specification.new do |s|
-  s.version = '0.0.4'
+  s.version = '0.0.5'
   s.test_files = %w{test/helper.rb test/test_jpeg.rb test/test_png.rb}
   s.files = %w{Rakefile README.rdoc ext/extconf.rb } + s.test_files +  
     Dir['ext/*.c'] + Dir['ext/*.h']

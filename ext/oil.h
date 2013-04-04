@@ -1,4 +1,6 @@
 #include <stddef.h>
+#include <stdio.h>
+#include <jpeglib.h>
 
 /* Callback to read image data.
  *
@@ -54,6 +56,7 @@ struct image {
     int (*get_scanline)(struct image *image, unsigned char *buffer);
     void (*free)(struct image *image);
     void *data;
+    jpeg_saved_marker_ptr icc_marker;
 };
 
 /* This is the base class for image writers.

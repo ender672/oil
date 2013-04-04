@@ -242,6 +242,7 @@ scalex_init(struct image *i, struct image *src, long width, int taps,
     i->height = src->height;
     i->cmp = src->cmp;
     i->free = scalex_free;
+    i->icc_marker = src->icc_marker;
     i->get_scanline = scalex_get_scanline;
 
     b = malloc(sizeof(struct scalex));
@@ -333,6 +334,7 @@ scaley_init(struct image *i, struct image *src, long height, int taps,
     i->cmp = src->cmp;
     i->free = scaley_free;
     i->get_scanline = scaley_get_scanline;
+    i->icc_marker = src->icc_marker;
     i->data = (void *)b;
 }
 
@@ -355,6 +357,7 @@ cubic_init(struct image *i, struct image *src, long width, long height) {
     i->width = width;
     i->height = height;
     i->cmp = src->cmp;
+    i->icc_marker = src->icc_marker;
 }
 
 /* bilinear resizing */
@@ -374,6 +377,7 @@ linear_init(struct image *i, struct image *src, long width, long height) {
     i->width = width;
     i->height = height;
     i->cmp = src->cmp;
+    i->icc_marker = src->icc_marker;
 }
 
 /* point resizing */
@@ -429,6 +433,7 @@ void point_init(struct image *i, struct image *src, long width, long height)
     i->cmp = src->cmp;
     i->free = point_free;
     i->get_scanline = point_get_scanline;
+    i->icc_marker = src->icc_marker;
 
     b = malloc(sizeof(struct point));
     b->src = src;

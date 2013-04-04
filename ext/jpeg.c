@@ -9,6 +9,9 @@
 
 #define BUFSIZE 8192
 
+#define ICC_MARKER      (JPEG_APP0+2)   // ICC profile marker
+
+
 /* extend jpeg structs
  *
  * Placing longjmp buffers in the per-image structs so that concurrent threads
@@ -201,15 +204,27 @@ jpeg_init(struct image *image, read_fn_t read, void *ctx, int sig_bytes)
     src->mgr.term_source = term_source;
 
     if (sig_bytes > 0 && sig_bytes < 4) {
-	src->mgr.next_input_byte = jpeg_sig;
-	src->mgr.bytes_in_buffer = sig_bytes;
-    } else if (sig_bytes)
-	return -1;
+        src->mgr.next_input_byte = jpeg_sig;
+        src->mgr.bytes_in_buffer = sig_bytes;
+    } else if (sig_bytes) {
+       return -1;
+    }
 
     if (setjmp(oil_dinfo->jmp))
-	return -1;
+        return -1;
+
+    // Keep ICC Marker
+    // http://jgge.googlecode.com/svn-history/r19/trunk/Libraries/cegui_mk2/dependencies/include/FreeImage/PluginJPEG.cpp
+    jpeg_save_markers(dinfo, ICC_MARKER, 0xFFFF);
+
     jpeg_read_header(dinfo, TRUE);
+    
     jpeg_calc_output_dimensions(dinfo);
+
+    image->icc_marker = NULL;
+    if(dinfo->marker_list) {
+        image->icc_marker = dinfo->marker_list;
+    }
 
     image->get_scanline = jpeg_get_scanline;
     image->width = dinfo->output_width;
@@ -259,6 +274,7 @@ jpeg_writer_write(struct writer *writer)
     struct image *src;
     unsigned char *buf;
     long i;
+    jpeg_saved_marker_ptr icc;
 
     src = writer->src;
     cinfo = (j_compress_ptr)writer->data;
@@ -266,9 +282,14 @@ jpeg_writer_write(struct writer *writer)
     buf = oil_cinfo->in_buf;
 
     if (setjmp(oil_cinfo->jmp))
-	return -1;
+        return -1;
 
     jpeg_start_compress(cinfo, TRUE);
+
+    icc = src->icc_marker;
+    if(icc != NULL)
+        jpeg_write_marker(cinfo, ICC_MARKER, icc->data , 
+            icc->original_length);
 
     for (i=0; i<src->height; i++) {
 	if (src->get_scanline(src, buf))
