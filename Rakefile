@@ -30,6 +30,10 @@ end
 CLEAN.add('ext/*{.o,.so,.log,.class,.jar}', 'ext/Makefile')
 CLOBBER.add('*.gem')
 
+desc 'Build the jar, use JRUBY environment'
+task :jar => "ext/oil.jar" do
+end
+
 desc 'Build the gem and include the java library'
 task :gem => "ext/oil.jar" do
   system "gem build oil.gemspec"
