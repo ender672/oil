@@ -184,6 +184,7 @@ jpeg_init(struct image *image, read_fn_t read, void *ctx, int sig_bytes)
     struct oil_decompress *oil_dinfo;
 
     image->free = jpeg_free;
+    image->icc_marker = NULL;
 
     dinfo = image->data = malloc(sizeof(struct oil_decompress));
     oil_dinfo = (struct oil_decompress *)dinfo;
@@ -287,9 +288,11 @@ jpeg_writer_write(struct writer *writer)
     jpeg_start_compress(cinfo, TRUE);
 
     icc = src->icc_marker;
-    if(icc != NULL)
+    if(icc != NULL) {
         jpeg_write_marker(cinfo, ICC_MARKER, icc->data , 
             icc->original_length);
+
+    }
 
     for (i=0; i<src->height; i++) {
 	if (src->get_scanline(src, buf))

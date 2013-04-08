@@ -104,6 +104,7 @@ allocate(VALUE klass)
 
     self = Data_Make_Struct(klass, struct thumbdata, mark, deallocate, data);
     data->reader = malloc(sizeof(struct image));
+    data->reader->icc_marker = NULL;
     return self;
 }
 
@@ -298,6 +299,9 @@ oil_each(int argc, VALUE *argv, VALUE self)
     check_initialized(thumb);
     check_in_progress(thumb);
     thumb->in_progress = 1;
+
+    // propagate icc marker if available
+    scale.icc_marker = thumb->reader->icc_marker;
 
     w = thumb->out_width;
     h = thumb->out_height;
