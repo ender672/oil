@@ -307,7 +307,7 @@ jpeg_writer_write(struct writer *writer)
 
 void
 jpeg_writer_init(struct writer *writer, write_fn_t write_fn, void *ctx,
-		 struct image *src, int progressive)
+		 struct image *src, int progressive, int quality)
 {
     j_compress_ptr cinfo;
     struct oil_compress *oil_cinfo;
@@ -339,8 +339,14 @@ jpeg_writer_init(struct writer *writer, write_fn_t write_fn, void *ctx,
 
     jpeg_set_defaults(cinfo);
 
-    if(progressive) 
+    // The function jpeg_set_quality() shall construct JPEG quantization tables 
+    // for the given quality setting. The quality value ranges from 0..100. 
+    // If "force_baseline" is TRUE, the computed quantization table entries are limited to 1..255 for JPEG baseline compatibility.
+    jpeg_set_quality(cinfo, quality, 1);
+    
+    if(progressive) {
         jpeg_simple_progression(cinfo);
+    }
 
     writer->src = src;
     writer->data = cinfo;
