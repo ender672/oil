@@ -28,4 +28,6 @@ unless have_library('png')
   abort "libpng was not found."
 end
 
+$CFLAGS = "-fPIC -ggdb3 -O0"
+
 create_makefile('oil')

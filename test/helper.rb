@@ -123,7 +123,7 @@ def resize_string(str, width=nil, height=nil)
   width ||= 100
   height ||= 200
   out = binary_stringio
-  Oil.new(io, width, height).each{ |d| out << d }
+  Oil.new(io, width, height).each(progressive: false){ |d| out << d }
   out.string
 end
 

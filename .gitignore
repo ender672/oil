@@ -4,6 +4,7 @@ ext/*.o
 ext/*.class
 ext/*.jar
 ext/Makefile
+ext/*.bundle
 lib/*.so
 *.gem
 *.rbc

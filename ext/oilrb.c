@@ -104,6 +104,7 @@ allocate(VALUE klass)
 
     self = Data_Make_Struct(klass, struct thumbdata, mark, deallocate, data);
     data->reader = malloc(sizeof(struct image));
+    data->reader->icc_marker = NULL;
     return self;
 }
 
@@ -179,21 +180,21 @@ oil_scale(int argc, VALUE *argv, VALUE self)
     long w, h;
     int preserve_aspect_i;
 
-    rb_scan_args(argc, argv, "21", &rb_width, &rb_height, &options);
+    rb_scan_args(argc, argv, "2:", &rb_width, &rb_height, &options);
     Data_Get_Struct(self, struct thumbdata, data);
 
     w = FIX2INT(rb_width);
     h = FIX2INT(rb_height);
     preserve_aspect_i = 1;
 
-    if (TYPE(options) == T_HASH) {
-	interp = rb_hash_aref(options, sym_interpolation);
-	if (!NIL_P(interp))
-	    set_interp(data, interp);
+    if (TYPE(options) == T_HASH){
+        interp = rb_hash_aref(options, sym_interpolation);
+        if (!NIL_P(interp))
+            set_interp(data, interp);
 
-	preserve_aspect = rb_hash_aref(options, sym_preserve_aspect_ratio);
-	if (!NIL_P(preserve_aspect) && !RTEST(preserve_aspect))
-	    preserve_aspect_i = 0;
+        preserve_aspect = rb_hash_aref(options, sym_preserve_aspect_ratio);
+        if (!NIL_P(preserve_aspect) && !RTEST(preserve_aspect))
+            preserve_aspect_i = 0;
     }
 
     if (preserve_aspect_i)
@@ -263,13 +264,13 @@ yield_resize(VALUE _writer)
 
 static void
 init_equivalent_writer(struct writer *writer, enum image_type type,
-		       struct image *src)
+		       struct image *src, int progressive, int quality)
 {
     switch (type) {
       case PPM:
         return ppm_writer_init(writer, rb_write_fn, 0, src);
       case JPEG:
-        return jpeg_writer_init(writer, rb_write_fn, 0, src);
+        return jpeg_writer_init(writer, rb_write_fn, 0, src, progressive, quality);
       case PNG:
         return png_writer_init(writer, rb_write_fn, 0, src);
     }
@@ -277,24 +278,35 @@ init_equivalent_writer(struct writer *writer, enum image_type type,
 
 /*
  *  call-seq:
- *     oil.each(&block) -> self
+ *     oil.each(hash_parameters, &block) -> self
  *
+ *     hash_parameters can have :progressive set to true/false
+ *                              :quality set to 0..100
+
  *  Yields a series of binary strings that make up the resized image data.
  */
 
 static VALUE
-oil_each(VALUE self)
+oil_each(int argc, VALUE *argv, VALUE self)
 {
     struct image scale;
     struct writer writer;
     struct thumbdata *thumb;
     int state;
     long w, h;
+    VALUE output_params;
+    VALUE progressive;
+    VALUE quality;
 
+
+    rb_scan_args(argc, argv, ":", &output_params);
     Data_Get_Struct(self, struct thumbdata, thumb);
     check_initialized(thumb);
     check_in_progress(thumb);
     thumb->in_progress = 1;
+
+    // propagate icc marker if available
+    scale.icc_marker = thumb->reader->icc_marker;
 
     w = thumb->out_width;
     h = thumb->out_height;
@@ -306,7 +318,35 @@ oil_each(VALUE self)
     else
 	cubic_init(&scale, thumb->reader, w, h);
 
-    init_equivalent_writer(&writer, thumb->out_type, &scale);
+
+    quality = INT2FIX(75);
+    progressive = Qtrue;
+
+    switch (TYPE(output_params)) {
+        case T_NIL:
+            break;
+        case T_HASH:
+            quality = rb_hash_aref(output_params, ID2SYM(rb_intern("quality")));
+            if(TYPE(quality) == T_NIL)
+                quality = INT2FIX(75);
+            progressive = rb_hash_aref(output_params, ID2SYM(rb_intern("progressive")));
+            if(TYPE(progressive) == T_NIL)
+                progressive = Qtrue;
+
+            break;
+        default:
+            progressive = RTEST(output_params);
+    }
+
+    //printf("Progressive is %d\n", progressive == Qtrue);
+    //printf("Quality is %d\n", FIX2INT(quality));
+
+    if(FIX2INT(quality) > 100 || FIX2INT(quality) < 0)
+    {
+        rb_raise(rb_eTypeError, "Invalid quality provided");
+    }
+
+    init_equivalent_writer(&writer, thumb->out_type, &scale, RTEST(progressive), FIX2INT(quality));
     rb_protect(yield_resize, (VALUE)&writer, &state);
 
     writer.free(&writer);
@@ -314,7 +354,7 @@ oil_each(VALUE self)
 
     thumb->in_progress = 0;
     if (state)
-	rb_jump_tag(state);
+        rb_jump_tag(state);
     return self;
 }
 
@@ -360,7 +400,7 @@ Init_oil()
     VALUE cOil = rb_define_class("Oil", rb_cObject);
     rb_define_alloc_func(cOil, allocate);
     rb_define_method(cOil, "initialize", initialize, -1);
-    rb_define_method(cOil, "each", oil_each, 0);
+    rb_define_method(cOil, "each", oil_each, -1);
     rb_define_method(cOil, "width", oil_width, 0);
     rb_define_method(cOil, "height", oil_height, 0);
     rb_define_method(cOil, "out_width", oil_out_width, 0);
