@@ -1,5 +1,5 @@
 Gem::Specification.new do |s|
-  s.version = '0.0.5'
+  s.version = '0.0.6'
   s.test_files = %w{test/helper.rb test/test_jpeg.rb test/test_png.rb}
   s.files = %w{Rakefile README.rdoc ext/extconf.rb } + s.test_files +  
     Dir['ext/*.c'] + Dir['ext/*.h']
@@ -11,7 +11,7 @@ Gem::Specification.new do |s|
   s.authors = ['Timothy Elliott', 'Fotonauts']
   s.extensions << 'ext/extconf.rb'
   s.email = 'tle@holymonkey.com'
-  s.homepage = 'http://github.com/ender672/oil'
+  s.homepage = 'http://github.com/fotonauts/oil'
   s.has_rdoc = true
   s.extra_rdoc_files = ['README.rdoc']
 end
