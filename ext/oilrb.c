@@ -180,21 +180,21 @@ oil_scale(int argc, VALUE *argv, VALUE self)
     long w, h;
     int preserve_aspect_i;
 
-    rb_scan_args(argc, argv, "21", &rb_width, &rb_height, &options);
+    rb_scan_args(argc, argv, "2:", &rb_width, &rb_height, &options);
     Data_Get_Struct(self, struct thumbdata, data);
 
     w = FIX2INT(rb_width);
     h = FIX2INT(rb_height);
     preserve_aspect_i = 1;
 
-    if (TYPE(options) == T_HASH) {
-	interp = rb_hash_aref(options, sym_interpolation);
-	if (!NIL_P(interp))
-	    set_interp(data, interp);
+    if (TYPE(options) == T_HASH){
+        interp = rb_hash_aref(options, sym_interpolation);
+        if (!NIL_P(interp))
+            set_interp(data, interp);
 
-	preserve_aspect = rb_hash_aref(options, sym_preserve_aspect_ratio);
-	if (!NIL_P(preserve_aspect) && !RTEST(preserve_aspect))
-	    preserve_aspect_i = 0;
+        preserve_aspect = rb_hash_aref(options, sym_preserve_aspect_ratio);
+        if (!NIL_P(preserve_aspect) && !RTEST(preserve_aspect))
+            preserve_aspect_i = 0;
     }
 
     if (preserve_aspect_i)
@@ -299,7 +299,7 @@ oil_each(int argc, VALUE *argv, VALUE self)
     VALUE quality;
 
 
-    rb_scan_args(argc, argv, "01&", &output_params);
+    rb_scan_args(argc, argv, ":", &output_params);
     Data_Get_Struct(self, struct thumbdata, thumb);
     check_initialized(thumb);
     check_in_progress(thumb);
@@ -334,7 +334,7 @@ oil_each(int argc, VALUE *argv, VALUE self)
                 progressive = Qtrue;
 
             break;
-        default: 
+        default:
             progressive = RTEST(output_params);
     }
 
@@ -354,7 +354,7 @@ oil_each(int argc, VALUE *argv, VALUE self)
 
     thumb->in_progress = 0;
     if (state)
-	rb_jump_tag(state);
+        rb_jump_tag(state);
     return self;
 }
 
