@@ -1,16 +1,10 @@
 require 'mkmf'
 
-# OSX by default keeps libpng in the X11 dirs
-if RUBY_PLATFORM =~ /darwin/
-  png_idefault = '/usr/X11/include'
-  png_ldefault = '/usr/X11/lib'
-else
-  png_idefault = nil
-  png_ldefault = nil
-end
+$LOCAL_LIBS = "liboil/liboil.a"
 
 dir_config('jpeg')
-dir_config('png', png_idefault, png_ldefault)
+dir_config('png')
+find_header('oil.h', path="liboil")
 
 unless have_header('jpeglib.h')
   abort "libjpeg headers were not found."

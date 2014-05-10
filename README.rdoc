@@ -4,8 +4,8 @@ http://github.com/ender672/oil
 
 == DESCRIPTION:
 
-Oil resizes JPEG and PNG images. It aims for fast performance and low memory
-use.
+Oil is a Ruby extension for resizing JPEG and PNG images. It aims for fast
+performance and low memory use.
 
 == INSTALLATION:
 
@@ -66,7 +66,7 @@ Changes to the interpolator should be analyzed using ResampleScope:
 
 (The MIT License)
 
-Copyright (c) 2012
+Copyright (c) 2014
 
 * {Timothy Elliott}[http://holymonkey.com]
 

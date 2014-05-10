@@ -1,5 +1,5 @@
 #include <ruby.h>
-#include "oil.h"
+#include <oil.h>
 
 static ID id_read;
 static VALUE sym_interpolation, sym_preserve_aspect_ratio, sym_point,

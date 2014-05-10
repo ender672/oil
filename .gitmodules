@@ -1,0 +1,3 @@
+[submodule "ext/liboil"]
+	path = ext/liboil
+	url = https://github.com/ender672/liboil.git

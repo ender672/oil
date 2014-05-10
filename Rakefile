@@ -15,8 +15,15 @@ file 'ext/Makefile' do
   end
 end
 
-file 'ext/oil.so' => FileList.new('ext/Makefile', 'ext/oil.c', 'ext/ppm.c',
-  'ext/jpeg.c', 'ext/oilrb.c', 'ext/png.c', 'ext/resample.c') do
+file 'ext/liboil/liboil.a' => FileList.new('ext/liboil/oil.c',
+  'ext/liboil/jpeg.c', 'ext/liboil/png.c', 'ext/liboil/resample.c') do
+  cd 'ext/liboil' do
+    sh 'make CFLAGS="-Ofast -march=native -fPIC"'
+  end
+end
+
+file 'ext/oil.so' => FileList.new('ext/Makefile', 'ext/oilrb.c',
+  'ext/liboil/liboil.a') do
   cd 'ext' do
     sh 'make'
   end
