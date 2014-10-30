@@ -1,4 +1,3 @@
-require 'rubygems'
 require 'minitest/autorun'
 require 'oil'
 require 'stringio'
@@ -10,7 +9,7 @@ class TestPNG < MiniTest::Test
 \x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52\x00\x00\x00\
 \x01\x00\x00\x00\x01\x01\x00\x00\x00\x00\x37\x6E\xF9\x24\x00\x00\x00\x10\x49\
 \x44\x41\x54\x78\x9C\x62\x60\x01\x00\x00\x00\xFF\xFF\x03\x00\x00\x06\x00\x05\
-\x57\xBF\xAB\xD4\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82"
+\x57\xBF\xAB\xD4\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82".b
 
   BIG_PNG = begin
     resize_string(PNG_DATA, 500, 1000)
@@ -46,12 +45,12 @@ class TestPNG < MiniTest::Test
   # Allocation tests
 
   def test_multiple_initialize_leak
-    o = Oil.allocate
+    o = Oil::PNGReader.allocate
 
-    o.send(:initialize, png_io, 6, 7)
+    o.send(:initialize, png_io)
     o.each{ |d| }
 
-    o.send(:initialize, png_io, 8, 9)
+    o.send(:initialize, png_io)
     o.each{ |d| }
   end
 
@@ -77,7 +76,7 @@ class TestPNG < MiniTest::Test
 
   def test_io_does_nothing
     iotest(NilIO) do |io|
-      assert_raises(RuntimeError) { resize(io) }
+      assert_raises(TypeError) { resize(io) }
     end
   end
 

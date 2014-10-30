@@ -1,49 +1,45 @@
-require 'rake/clean'
+require 'rake/extensiontask'
+require 'rubygems/package_task'
 require 'rake/testtask'
 
-file 'ext/oil.jar' => FileList['ext/*.java'] do
-  cd 'ext' do
-    sh "javac -g -cp #{Config::CONFIG['prefix']}/lib/jruby.jar #{FileList['*.java']}"
-    quoted_files = (FileList.new('*.class').to_a.map { |f| "'#{f}'" }).join(' ')
-    sh "jar cf oil.jar #{quoted_files}"
-  end
+Rake::ExtensionTask.new('oil') do |ext|
+  ext.lib_dir = 'lib/oil'
 end
 
-file 'ext/Makefile' do
-  cd 'ext' do
-    ruby "extconf.rb #{ENV['EXTOPTS']}"
-  end
+s = Gem::Specification.new('oil', '0.1.0') do |s|
+  s.license = 'MIT'
+  s.summary = 'Resize JPEG and PNG images.'
+  s.description = 'Resize JPEG and PNG images, aiming for fast performance and low memory use.'
+  s.authors = ['Timothy Elliott']
+  s.email = 'tle@holymonkey.com'
+  s.files = %w{
+    Rakefile
+    README.rdoc
+    MIT-LICENSE
+    lib/oil.rb
+    ext/oil/resample.c
+    ext/oil/resample.h
+    ext/oil/yscaler.c
+    ext/oil/yscaler.h
+    ext/oil/jpeg.c
+    ext/oil/png.c
+    ext/oil/oil.c
+    ext/oil/extconf.rb
+    test/helper.rb
+    test/test_jpeg.rb
+    test/test_png.rb
+  }
+  s.homepage = 'http://github.com/ender672/oil'
+  s.extensions << 'ext/oil/extconf.rb'
+  s.extra_rdoc_files = ['README.rdoc']
 end
 
-file 'ext/liboil/liboil.a' => FileList.new('ext/liboil/oil.c',
-  'ext/liboil/jpeg.c', 'ext/liboil/png.c', 'ext/liboil/resample.c') do
-  cd 'ext/liboil' do
-    sh 'make CFLAGS="-Ofast -march=native -fPIC"'
-  end
-end
-
-file 'ext/oil.so' => FileList.new('ext/Makefile', 'ext/oilrb.c',
-  'ext/liboil/liboil.a') do
-  cd 'ext' do
-    sh 'make'
-  end
-end
+Gem::PackageTask.new(s){}
 
 Rake::TestTask.new do |t|
-  t.libs = ['ext', 'test']
-  t.test_files = FileList['test/test_*.rb']
+  t.libs = ['lib', 'test']
+  t.test_files = FileList['test/test_jpeg.rb', 'test/test_png.rb']
 end
 
-CLEAN.add('ext/*{.o,.so,.log,.class,.jar}', 'ext/Makefile')
-CLOBBER.add('*.gem')
-
-desc 'Build the gem and include the java library'
-task :gem => "ext/oil.jar" do
-  system "gem build oil.gemspec"
-end
-
-desc 'Compile the extension'
-task :compile => "ext/oil.#{RUBY_PLATFORM =~ /java/ ? 'jar' : 'so'}"
-
-task :test => :compile
-task :default => :test
+task test: :compile
+task default: :test

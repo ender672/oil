@@ -73,57 +73,12 @@ class NotStringIO < CustomIO
   end
 end
 
-class PPM
-  def initialize(w, h)
-    @w = w
-    @h = h
-  end
-
-  def rowlen
-    @w * 3
-  end
-
-  def row_samples(row)
-    (0...rowlen).map{ |i| (((row - 1) * @w + i) % 255).chr }.join
-  end
-
-  def samples
-    (1..@h).map{ |i| row_samples(i) }.join
-  end
-
-  def header
-    "P6 #{@w} #{@h} 255 "
-  end
-
-  def to_s
-    header + samples
-  end
-
-  def to_io
-    StringIO.new(to_s)
-  end
-
-  def header_to_io
-    StringIO.new(header)
-  end
-
-  def print
-    i = 0
-    samples.bytes.each_slice(rowlen) do |sl|
-      Kernel.print "#{i}:"
-      sl.each{ |s| Kernel.print '%4d' % s }
-      puts ""
-      i += 1
-    end
-  end
-end
-
 def resize_string(str, width=nil, height=nil)
   io = StringIO.new(str)
   width ||= 100
   height ||= 200
   out = binary_stringio
-  Oil.new(io, width, height).each{ |d| out << d }
+  o = Oil.new(io, width, height).each{ |d| out << d }
   out.string
 end
 
