@@ -1,4 +1,5 @@
 #include <ruby.h>
+#include <ruby/st.h>
 #include <jpeglib.h>
 #include "resample.h"
 #include "yscaler.h"
