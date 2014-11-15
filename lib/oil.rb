@@ -1,5 +1,5 @@
 module Oil
-  VERSION = "0.1.0"
+  VERSION = "0.1.1"
 
   def self.fix_ratio(sw, sh, boxw, boxh)
     x = boxw / sw.to_f
