@@ -7,7 +7,7 @@
 #define READ_SIZE 1024
 #define WRITE_SIZE 1024
 
-static ID id_GRAYSCALE, id_RGB, id_YCbCr, id_CMYK, id_YCCK, id_UNKNOWN;
+static ID id_GRAYSCALE, id_RGB, id_YCbCr, id_CMYK, id_YCCK, id_RGBX, id_UNKNOWN;
 static ID id_APP0, id_APP1, id_APP2, id_APP3, id_APP4, id_APP5, id_APP6,
 	id_APP7, id_APP8, id_APP9, id_APP10, id_APP11, id_APP12, id_APP13,
 	id_APP14, id_APP15, id_COM;
@@ -49,6 +49,8 @@ static J_COLOR_SPACE sym_to_j_color_space(VALUE sym)
 		return JCS_CMYK;
 	} else if (rb == id_YCCK) {
 		return JCS_YCCK;
+	} else if (rb == id_RGBX) {
+		return JCS_EXT_RGBX;
 	}
 	rb_raise(rb_eRuntimeError, "Color space not recognized.");
 }
@@ -320,12 +322,16 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 
 /*
  *  call-seq:
- *     reader.components -> number
+ *     reader.num_components -> number
  *
- *  Retrieve the number of components as stored in the JPEG image.
+ *  Retrieve the number of components per pixel as indicated by the image
+ *  header.
+ *
+ *  This may differ from the number of components that will be returned by the
+ *  decompressor if we ask for a color space transformation.
  */
 
-static VALUE components(VALUE self)
+static VALUE num_components(VALUE self)
 {
 	struct jpeg_decompress_struct * dinfo;
 	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
@@ -334,18 +340,53 @@ static VALUE components(VALUE self)
 
 /*
  *  call-seq:
- *     reader.color_space -> symbol
+ *     reader.output_components -> number
  *
- *  Returns a symbol representing the color model in which the JPEG is stored.
+ *  Retrieve the number of bytes per pixel that will be in the output image.
  *
- *  This does not have to be set explicitly and can be relied upon when the file
- *  conforms to JFIF or Adobe conventions. Otherwise it is guessed.
+ *  Not all bytes will necessarily have data, since some color spaces have
+ *  padding.
+ */
+
+static VALUE output_components(VALUE self)
+{
+	struct jpeg_decompress_struct * dinfo;
+	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
+	return INT2FIX(dinfo->output_components);
+}
+
+/*
+ *  call-seq:
+ *     reader.out_color_components -> number
+ *
+ *  Retrieve the number of components in the output color space.
+ *
+ *  Some color spaces have padding, so this may not accurately represent the
+ *  size of output pixels.
+ */
+
+static VALUE out_color_components(VALUE self)
+{
+	struct jpeg_decompress_struct * dinfo;
+	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
+	return INT2FIX(dinfo->out_color_components);
+}
+
+/*
+ *  call-seq:
+ *     reader.jpeg_color_space -> symbol
+ *
+ *  Returns a symbol representing the color model in which the JPEG is stored,
+ *  as indicated by the image header.
  *
  *  Possible color models are: :GRAYSCALE, :RGB, :YCbCr, :CMYK, and :YCCK. This
  *  method will return :UNKNOWN if the color model is not recognized.
+ *
+ *  This may differ from the color space that will be returned by the
+ *  decompressor if we ask for a color space transformation.
  */
 
-static VALUE color_space(VALUE self)
+static VALUE jpeg_color_space(VALUE self)
 {
 	struct jpeg_decompress_struct * dinfo;
 	ID id;
@@ -370,7 +411,7 @@ static VALUE out_color_space(VALUE self)
 	ID id;
 
 	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	id = j_color_space_to_id(dinfo->jpeg_color_space);
+	id = j_color_space_to_id(dinfo->out_color_space);
 
 	return ID2SYM(id);
 }
@@ -379,7 +420,7 @@ static VALUE out_color_space(VALUE self)
  *  call-seq:
  *     reader.out_color_space = symbol
  *
- *  Set the color model to which teh image will be converted on decompress.
+ *  Set the color model to which the image will be converted on decompress.
  */
 
 static VALUE set_out_color_space(VALUE self, VALUE cs)
@@ -389,19 +430,22 @@ static VALUE set_out_color_space(VALUE self, VALUE cs)
 	Data_Get_Struct(self, struct readerdata, reader);
 	raise_if_locked(reader);
 
-	reader->dinfo.jpeg_color_space = sym_to_j_color_space(cs);
+	reader->dinfo.out_color_space = sym_to_j_color_space(cs);
 	jpeg_calc_output_dimensions(&reader->dinfo);
 	return cs;
 }
 
 /*
  *  call-seq:
- *     reader.width -> number
+ *     reader.image_width -> number
  *
- *  Retrieve the width of the image.
+ *  The width of the of the image as indicated by the header.
+ *
+ *  This may differ from the width of the image that will be returned by the
+ *  decompressor if we request DCT scaling.
  */
 
-static VALUE width(VALUE self)
+static VALUE image_width(VALUE self)
 {
 	struct jpeg_decompress_struct * dinfo;
 	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
@@ -410,16 +454,47 @@ static VALUE width(VALUE self)
 
 /*
  *  call-seq:
- *     reader.height -> number
+ *     reader.image_height -> number
  *
- *  Retrieve the height of the image.
+ *  The height of the image as indicated by the header.
+ *
+ *  This may differ from the height of the image that will be returned by the
+ *  decompressor if we request DCT scaling.
  */
 
-static VALUE height(VALUE self)
+static VALUE image_height(VALUE self)
 {
 	struct jpeg_decompress_struct * dinfo;
 	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
 	return INT2FIX(dinfo->image_height);
+}
+
+/*
+ *  call-seq:
+ *     reader.output_width -> number
+ *
+ *  The width of the of the image that will be output by the decompressor.
+ */
+
+static VALUE output_width(VALUE self)
+{
+	struct jpeg_decompress_struct * dinfo;
+	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
+	return INT2FIX(dinfo->output_width);
+}
+
+/*
+ *  call-seq:
+ *     reader.image_height -> number
+ *
+ *  The height of the image that will be output by the decompressor.
+ */
+
+static VALUE output_height(VALUE self)
+{
+	struct jpeg_decompress_struct * dinfo;
+	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
+	return INT2FIX(dinfo->output_height);
 }
 
 /*
@@ -710,16 +785,18 @@ static VALUE each2(struct write_jpeg_args *args)
 		if (!NIL_P(quality)) {
 			jpeg_set_quality(cinfo, FIX2INT(quality), FALSE);
 		}
+	}
 
+	jpeg_start_compress(cinfo, TRUE);
+	jpeg_start_decompress(dinfo);
+
+	if (!NIL_P(args->opts)) {
 		markers = rb_hash_aref(args->opts, sym_markers);
 		if (!NIL_P(markers)) {
 			Check_Type(markers, T_HASH);
 			rb_hash_foreach(markers, markerhash_each, (VALUE)cinfo);
 		}
 	}
-
-	jpeg_start_compress(cinfo, TRUE);
-	jpeg_start_decompress(dinfo);
 
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(ys))) {
@@ -816,12 +893,16 @@ void Init_jpeg()
 	rb_define_alloc_func(cJPEGReader, allocate);
 	rb_define_method(cJPEGReader, "initialize", initialize, -1);
 	rb_define_method(cJPEGReader, "markers", markers, 0);
-	rb_define_method(cJPEGReader, "color_space", color_space, 0);
+	rb_define_method(cJPEGReader, "jpeg_color_space", jpeg_color_space, 0);
 	rb_define_method(cJPEGReader, "out_color_space", out_color_space, 0);
-	rb_define_method(cJPEGReader, "color_space=", set_out_color_space, 1);
-	rb_define_method(cJPEGReader, "components", components, 0);
-	rb_define_method(cJPEGReader, "width", width, 0);
-	rb_define_method(cJPEGReader, "height", height, 0);
+	rb_define_method(cJPEGReader, "out_color_space=", set_out_color_space, 1);
+	rb_define_method(cJPEGReader, "num_components", num_components, 0);
+	rb_define_method(cJPEGReader, "output_components", output_components, 0);
+	rb_define_method(cJPEGReader, "out_color_components", out_color_components, 0);
+	rb_define_method(cJPEGReader, "image_width", image_width, 0);
+	rb_define_method(cJPEGReader, "image_height", image_height, 0);
+	rb_define_method(cJPEGReader, "output_width", output_width, 0);
+	rb_define_method(cJPEGReader, "output_height", output_height, 0);
 	rb_define_method(cJPEGReader, "each", each, -1);
 	rb_define_method(cJPEGReader, "scale_num", scale_num, 0);
 	rb_define_method(cJPEGReader, "scale_num=", set_scale_num, 1);
@@ -837,6 +918,7 @@ void Init_jpeg()
 	id_YCbCr = rb_intern("YCbCr");
 	id_CMYK = rb_intern("CMYK");
 	id_YCCK = rb_intern("YCCK");
+	id_RGBX = rb_intern("RGBX");
 	id_UNKNOWN = rb_intern("UNKNOWN");
 	id_APP0 = rb_intern("APP0");
 	id_APP1 = rb_intern("APP1");

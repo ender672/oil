@@ -21,15 +21,15 @@ class TestJPEG < MiniTest::Test
 
   def test_valid
     o = Oil::JPEGReader.new(jpeg_io)
-    assert_equal 1, o.width
-    assert_equal 1, o.height
+    assert_equal 1, o.image_width
+    assert_equal 1, o.image_height
   end
 
   def test_missing_eof
     io = StringIO.new(JPEG_DATA[0..-2])
     o = Oil::JPEGReader.new(io)
-    assert_equal 1, o.width
-    assert_equal 1, o.height
+    assert_equal 1, o.image_width
+    assert_equal 1, o.image_height
   end
 
   def test_bogus_header_marker
