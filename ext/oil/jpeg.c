@@ -295,10 +295,11 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 	 */
 	if (reader->source_io) {
 		jpeg_abort_decompress(dinfo);
+	} else {
+		jpeg_create_decompress(dinfo);
 	}
 
-	jpeg_create_decompress(&reader->dinfo);
-	reader->dinfo.src = &reader->mgr;
+	dinfo->src = &reader->mgr;
 
 	rb_scan_args(argc, argv, "11", &io, &markers);
 	reader->source_io = io;
@@ -313,7 +314,7 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 	}
 
 	/* Be warned that this can raise a ruby exception and longjmp away. */
-	jpeg_read_header(&reader->dinfo, TRUE);
+	jpeg_read_header(dinfo, TRUE);
 
 	jpeg_calc_output_dimensions(dinfo);
 
