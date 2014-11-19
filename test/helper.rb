@@ -72,19 +72,3 @@ class NotStringIO < CustomIO
     return 78887
   end
 end
-
-def resize_string(str, width=nil, height=nil)
-  io = StringIO.new(str)
-  width ||= 100
-  height ||= 200
-  out = binary_stringio
-  o = Oil.new(io, width, height).each{ |d| out << d }
-  out.string
-end
-
-def binary_stringio
-  io = StringIO.new
-  io.set_encoding 'ASCII-8BIT' if RUBY_VERSION >= '1.9'
-  io
-end
-

@@ -13,11 +13,16 @@ class TestPNG < MiniTest::Test
 \x57\xBF\xAB\xD4\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82".b
 
   BIG_PNG = begin
-    resize_string(PNG_DATA, 500, 1000)
+    s = ""
+    r = Oil::PNGReader.new(StringIO.new(PNG_DATA))
+    r.scale_width = 500
+    r.scale_height = 1000
+    r.each{ |a| s << a }
+    s
   end
 
   def test_valid
-    o = Oil.new(png_io, 10 ,20)
+    o = Oil::PNGReader.new(png_io)
     assert_equal 1, o.width
     assert_equal 1, o.height
   end
@@ -25,20 +30,20 @@ class TestPNG < MiniTest::Test
   def test_bogus_header_chunk
     str = PNG_DATA.dup
     str[15] = "\x10"
-    assert_raises(RuntimeError) { resize_string(str) }
+    assert_raises(RuntimeError) { drain_string(str) }
   end
 
   def test_bogus_body_chunk
     str = PNG_DATA.dup
     str[37] = "\x10"
-    assert_raises(RuntimeError) { resize_string(str) }
+    assert_raises(RuntimeError) { drain_string(str) }
   end
 
   def test_bogus_end_chunk
     str = PNG_DATA.dup
     str[-6] = "\x10"
     io = StringIO.new(str)
-    o = Oil.new(png_io, 10 ,20)
+    o = Oil::PNGReader.new(png_io)
     assert_equal 1, o.width
     assert_equal 1, o.height
   end
@@ -66,7 +71,7 @@ class TestPNG < MiniTest::Test
   end
 
   def resize(io)
-    Oil.new(io, 20, 10).each{ |d| }
+    Oil::PNGReader.new(io).each{ |d| }
   end
 
   def test_io_too_much_data
@@ -109,38 +114,38 @@ class TestPNG < MiniTest::Test
 
   def test_raise_in_each
     assert_raises(CustomError) do
-      Oil.new(png_io, 10, 20).each { raise CustomError }
+      Oil::PNGReader.new(png_io).each { raise CustomError }
     end
   end
 
   def test_throw_in_each
     catch(:foo) do
-      Oil.new(png_io, 10, 20).each { throw :foo }
+      Oil::PNGReader.new(png_io).each { throw :foo }
     end
   end
 
   def test_each_in_each
-    o = Oil.new(png_io, 10, 20)
+    o = Oil::PNGReader.new(png_io)
     o.each do |d|
       assert_raises(RuntimeError){ o.each { |e| } }
     end
   end
 
   def test_each_shrinks_buffer
-    io = StringIO.new(PNG_DATA)
-    io_out = binary_stringio
-    Oil.new(io, 200, 200).each { |d| io_out << d; d.slice!(0, 4) }
+    Oil::PNGReader.new(png_io).each { |d| d.slice!(0, 4) }
   end
   
   def test_each_enlarges_buffer
-    io = StringIO.new(PNG_DATA)
-    io_out = binary_stringio
-    Oil.new(io, 200, 200).each { |d| io_out << d; d << "foobar" }
+    Oil::PNGReader.new(png_io).each { |d| d << "foobar" }
   end
 
   private
 
   def png_io
     StringIO.new(PNG_DATA)
+  end
+
+  def drain_string(str)
+    Oil::PNGReader.new(StringIO.new(str)).each{|s|}
   end
 end

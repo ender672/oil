@@ -16,7 +16,12 @@ class TestJPEG < MiniTest::Test
 \x01\x01\x00\x00\x3f\x00\xd2\xcf\x20\xff\xd9".b
 
   BIG_JPEG = begin
-    resize_string(JPEG_DATA, 2000, 2000)
+    s = ""
+    r = Oil::JPEGReader.new(StringIO.new(JPEG_DATA))
+    r.scale_width = 2000
+    r.scale_height = 2000
+    r.each{ |a| s << a }
+    s
   end
 
   def test_valid
@@ -35,13 +40,22 @@ class TestJPEG < MiniTest::Test
   def test_bogus_header_marker
     str = JPEG_DATA.dup
     str[3] = "\x10"
-    assert_raises(RuntimeError) { resize_string(str) }
+    assert_raises(RuntimeError) { drain_string(str) }
   end
 
   def test_bogus_body_marker
     str = JPEG_DATA.dup
     str[-22] = "\x10"
-    assert_raises(RuntimeError) { resize_string(str) }
+    assert_raises(RuntimeError) { drain_string(str) }
+  end
+
+  def test_color_space
+    o = Oil::JPEGReader.new(jpeg_io)
+    assert_equal :GRAYSCALE, o.jpeg_color_space
+    assert_equal :GRAYSCALE, o.out_color_space
+    assert_equal 1, o.num_components
+    assert_equal 1, o.output_components
+    assert_equal 1, o.out_color_components
   end
 
   # Allocation tests
@@ -67,7 +81,10 @@ class TestJPEG < MiniTest::Test
   end
 
   def resize(io)
-    o = Oil.new(io, 20, 10).each{ |d| }
+    o = Oil::JPEGReader.new(io)
+    o.scale_width = 10
+    o.scale_height = 20
+    o.each{ |d| }
   end
 
   def test_io_too_much_data
@@ -112,18 +129,18 @@ class TestJPEG < MiniTest::Test
 
   def test_raise_in_each
     assert_raises(CustomError) do
-      Oil.new(jpeg_io, 10, 20).each{ raise CustomError }
+      Oil::JPEGReader.new(jpeg_io).each{ raise CustomError }
     end
   end
 
   def test_throw_in_each
     catch(:foo) do
-      Oil.new(jpeg_io, 10, 20).each{ throw :foo }
+      Oil::JPEGReader.new(jpeg_io).each{ throw :foo }
     end
   end
 
   def test_each_in_each
-    o = Oil.new(jpeg_io, 10, 20)
+    o = Oil::JPEGReader.new(jpeg_io)
     o.each do |d|
       assert_raises(RuntimeError) do
         o.each { |e| }
@@ -132,20 +149,20 @@ class TestJPEG < MiniTest::Test
   end
 
   def test_each_shrinks_buffer
-    io = StringIO.new(JPEG_DATA)
-    io_out = binary_stringio
-    Oil.new(io, 200, 200).each{ |d| io_out << d; d.slice!(0, 4) }
+    Oil::JPEGReader.new(jpeg_io).each{ |d| d.slice!(0, 4) }
   end
   
   def test_each_enlarges_buffer
-    io = StringIO.new(JPEG_DATA)
-    io_out = binary_stringio
-    o = Oil.new(io, 200, 200).each{ |d| io_out << d; d << "foobar" }
+    Oil::JPEGReader.new(jpeg_io).each{ |d| d << "foobar" }
   end
 
   private
 
   def jpeg_io
     StringIO.new(JPEG_DATA)
+  end
+
+  def drain_string(str)
+    Oil::JPEGReader.new(StringIO.new(str)).each{ |s| }
   end
 end

@@ -1,3 +1,4 @@
 pkg
 tmp
 lib/oil/oil.so
+.autotest
