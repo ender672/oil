@@ -156,6 +156,73 @@ class TestJPEG < MiniTest::Test
     Oil::JPEGReader.new(jpeg_io).each{ |d| d << "foobar" }
   end
 
+  def test_marker_roundtrip
+    str = ""
+    opts = { markers: { COM: ["hello world", "foobar123"]}}
+    Oil::JPEGReader.new(jpeg_io).each(opts){ |s| str << s }
+
+    r = Oil::JPEGReader.new(StringIO.new(str), [:COM])
+
+    assert_equal(r.markers, opts[:markers])
+  end
+
+  def test_marker_code_unrecognized
+    assert_raises(RuntimeError) do
+      Oil::JPEGReader.new(jpeg_io, [:FOOBAR])
+    end
+  end
+
+  def test_marker_codes_not_array
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io, 1234)
+    end
+  end
+
+  def test_marker_code_not_symbol
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io, [1234])
+    end
+  end
+
+  def test_marker_too_big
+    opts = { markers: { COM: ["hello world"*10000]}}
+
+    assert_raises(RuntimeError) do
+      Oil::JPEGReader.new(jpeg_io).each(opts){ |s| str << s }
+    end
+  end
+
+  def test_markers_not_hash
+    opts = { markers: 1234 }
+
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io).each(opts){}
+    end
+  end
+
+  def test_marker_value_not_array
+    opts = { markers: { COM: 1234}}
+
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io).each(opts){}
+    end
+  end
+
+  def test_marker_value_entry_not_string
+    opts = { markers: { COM: [1234]}}
+
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io).each(opts){}
+    end
+  end
+
+  def test_quality_not_a_number
+    opts = { quality: "foobar" }
+    assert_raises(TypeError) do
+      Oil::JPEGReader.new(jpeg_io).each(opts){}
+    end
+  end
+
   private
 
   def jpeg_io

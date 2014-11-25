@@ -308,6 +308,9 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 	if(!NIL_P(markers)) {
 		Check_Type(markers, T_ARRAY);
 		for (i=0; i<RARRAY_LEN(markers); i++) {
+			if (!SYMBOL_P(RARRAY_PTR(markers)[i])) {
+				rb_raise(rb_eTypeError, "Marker code is not a symbol.");
+			}
 			marker_code = sym_to_marker_code(RARRAY_PTR(markers)[i]);
 			jpeg_save_markers(dinfo, marker_code, 0xFFFF);
 		}
