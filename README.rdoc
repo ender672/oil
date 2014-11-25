@@ -27,8 +27,6 @@ performance and low memory use.
 
 == REQUIREMENTS:
 
-These requirements do not apply to the JRuby gem.
-
   * libjpeg-turbo
   * libpng
 
