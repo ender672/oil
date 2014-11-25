@@ -54,6 +54,7 @@ static void write_data_fn(png_structp png_ptr, png_bytep data, png_size_t length
 static void deallocate(struct readerdata *reader)
 {
 	png_destroy_read_struct(&reader->png, &reader->info, NULL);
+	free(reader);
 }
 
 static void mark(struct readerdata *reader)
