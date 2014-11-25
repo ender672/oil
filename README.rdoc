@@ -46,14 +46,6 @@ Valgrind should not complain (ruby-1.9.3p125, compiled with -O3):
   $ valgrind /path/to/ruby -Iext:test test/test_jpeg.rb
   $ valgrind /path/to/ruby -Iext:test test/test_png.rb
 
-Tests should not leak memory:
-
-  $ ruby -Ilib:test -e "require 'test_jpeg.rb'; require 'test_png.rb'; loop{ MiniTest.run }"
-
-You can loop over a single test for memory leaks as well:
-
-  $ ruby -Ilib:test -e "require 'test_jpeg.rb'; loop{ MiniTest.run(['-n', 'test_each_in_each']) }" > /dev/null
-
 Changes to the interpolator should be analyzed using ResampleScope:
 
   https://github.com/jsummers/resamplescope
