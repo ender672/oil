@@ -64,13 +64,19 @@ static void mark(struct readerdata *reader)
 	}
 }
 
+static void allocate2(struct readerdata *reader)
+{
+	reader->png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, (png_error_ptr)error, (png_error_ptr)warning);
+	reader->info = png_create_info_struct(reader->png);
+}
+
 static VALUE allocate(VALUE klass)
 {
 	struct readerdata *reader;
 	VALUE self;
 
 	self = Data_Make_Struct(klass, struct readerdata, mark, deallocate, reader);
-	reader->png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, (png_error_ptr)error, (png_error_ptr)warning);
+	allocate2(reader);
 	return self;
 }
 
@@ -89,16 +95,23 @@ static VALUE initialize(VALUE self, VALUE io)
 
 	Data_Get_Struct(self, struct readerdata, reader);
 
-	if (reader->source_io) {
+	if (reader->info) {
 		png_destroy_read_struct(&reader->png, &reader->info, NULL);
-		reader->png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, (png_error_ptr)error, (png_error_ptr)warning);
+		allocate2(reader);
 		reader->locked = 0;
 	}
 
 	reader->source_io = io;
-	reader->info = png_create_info_struct(reader->png);
 	png_set_read_fn(reader->png, (void*)io, read_data);
 	png_read_info(reader->png, reader->info);
+
+	png_set_packing(reader->png);
+	png_set_strip_16(reader->png);
+	png_set_expand(reader->png);
+	png_read_update_info(reader->png, reader->info);
+
+	reader->scale_width = png_get_image_width(reader->png, reader->info);
+	reader->scale_height = png_get_image_height(reader->png, reader->info);
 	return self;
 }
 
@@ -194,54 +207,75 @@ static VALUE set_scale_height(VALUE self, VALUE scale_height)
 	return scale_height;
 }
 
-struct write_png_args {
-	VALUE opts;
+struct each_args {
 	struct readerdata *reader;
+	png_structp wpng;
+	png_infop winfo;
 	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
-	struct yscaler *ys;
-	png_structp png;
-	png_infop info;
+	unsigned char **scanlines;
+	struct yscaler ys;
 };
 
-static VALUE each2(struct write_png_args *args)
+static VALUE each_interlace(struct each_args *args)
 {
-	png_structp png;
-	png_infop info;
-	png_byte ctype;
 	struct readerdata *reader;
-	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf;
-	struct yscaler *ys;
-	uint32_t i, scalex, scaley;
+	unsigned char *inwidthbuf, *outwidthbuf;
+	uint32_t i, width, height, scalex, scaley;
 	int cmp;
 
 	reader = args->reader;
-	png = args->png;
-	info = args->info;
 	inwidthbuf = args->inwidthbuf;
 	outwidthbuf = args->outwidthbuf;
-	ys = args->ys;
-	scalex = args->reader->scale_width;
-	scaley = args->reader->scale_height;
-
+	scalex = reader->scale_width;
+	scaley = reader->scale_height;
 	cmp = png_get_channels(reader->png, reader->info);
-	png_set_write_fn(png, 0, write_data_fn, flush_data_fn);
-	ctype = png_get_color_type(reader->png, reader->info);
+	width = png_get_image_width(reader->png, reader->info);
+	height = png_get_image_height(reader->png, reader->info);
 
-	png_set_IHDR(png, info, scalex, scaley, 8, ctype, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-	png_write_info(png, info);
+	png_write_info(args->wpng, args->winfo);
+	png_read_image(args->reader->png, (png_bytepp)args->scanlines);
+
+	for (i=0; i<scaley; i++) {
+		yscaler_prealloc_scale(height, scaley,
+			(uint8_t **)args->scanlines, (uint8_t *)inwidthbuf,
+			i, width, cmp, 0);
+		xscale(inwidthbuf, width, outwidthbuf, scalex, cmp, 0);
+		png_write_row(args->wpng, outwidthbuf);
+	}
+	png_write_end(args->wpng, args->winfo);
+	return Qnil;
+}
+
+static VALUE each_interlace_none(struct each_args *args)
+{
+	struct readerdata *reader;
+	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf;
+	struct yscaler *ys;
+	uint32_t i, width, scalex, scaley;
+	int cmp;
+
+	reader = args->reader;
+	inwidthbuf = args->inwidthbuf;
+	outwidthbuf = args->outwidthbuf;
+	ys = &args->ys;
+	scalex = reader->scale_width;
+	scaley = reader->scale_height;
+	cmp = png_get_channels(reader->png, reader->info);
+	width = png_get_image_width(reader->png, reader->info);
+
+	png_write_info(args->wpng, args->winfo);
 
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(ys))) {
 			png_read_row(reader->png, inwidthbuf, NULL);
-			xscale(inwidthbuf, png_get_image_width(reader->png, reader->info), yinbuf, scalex, cmp, 0);
+			xscale(inwidthbuf, width, yinbuf, scalex, cmp, 0);
 		}
 		yscaler_scale(ys, outwidthbuf, scalex, cmp, 0);
-		png_write_row(png, outwidthbuf);
+		png_write_row(args->wpng, outwidthbuf);
 	}
 
-	png_write_end(png, info);
-
+	png_write_end(args->wpng, args->winfo);
 	return Qnil;
 }
 
@@ -262,13 +296,15 @@ static VALUE each2(struct write_png_args *args)
 static VALUE each(int argc, VALUE *argv, VALUE self)
 {
 	struct readerdata *reader;
-	int cmp, state;
-	struct write_png_args args;
-	unsigned char *inwidthbuf, *outwidthbuf;
-	struct yscaler ys;
+	png_infop winfo;
+	png_structp wpng;
 	VALUE opts;
-	png_structp png;
-	png_infop info;
+	int cmp, state;
+	struct each_args args;
+	uint32_t i, height;
+	png_byte ctype;
+	unsigned char **scanlines;
+	size_t row_bytes;
 
 	rb_scan_args(argc, argv, "01", &opts);
 
@@ -277,41 +313,50 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	raise_if_locked(reader);
 	reader->locked = 1;
 
-	png_set_packing(reader->png);
-	png_set_strip_16(reader->png);
-	png_set_expand(reader->png);
-	png_read_update_info(reader->png, reader->info);
-
-	if (!reader->scale_width) {
-		reader->scale_width = png_get_image_width(reader->png, reader->info);
-	}
-	if (!reader->scale_height) {
-		reader->scale_height = png_get_image_height(reader->png, reader->info);
-	}
-
-	png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL,
+	wpng = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL,
 		(png_error_ptr)error, (png_error_ptr)warning);
-	info = png_create_info_struct(png);
+	winfo = png_create_info_struct(wpng);
+	png_set_write_fn(wpng, 0, write_data_fn, flush_data_fn);
 
-	inwidthbuf = malloc(png_get_rowbytes(reader->png, reader->info));
 	cmp = png_get_channels(reader->png, reader->info);
-	outwidthbuf = malloc(reader->scale_width * cmp);
-	yscaler_init(&ys, png_get_image_height(reader->png, reader->info),
-		reader->scale_height, reader->scale_width * cmp);
+	ctype = png_get_color_type(reader->png, reader->info);
+
+	png_set_IHDR(wpng, winfo, reader->scale_width, reader->scale_height, 8,
+		ctype, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+		PNG_FILTER_TYPE_DEFAULT);
+
+	height = png_get_image_height(reader->png, reader->info);
+	row_bytes = png_get_rowbytes(reader->png, reader->info);
 
 	args.reader = reader;
-	args.opts = opts;
-	args.png = png;
-	args.info = info;
-	args.inwidthbuf = inwidthbuf;
-	args.outwidthbuf = outwidthbuf;
-	args.ys = &ys;
-	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
+	args.wpng = wpng;
+	args.winfo = winfo;
+	args.inwidthbuf = malloc(row_bytes);
+	args.outwidthbuf = malloc(reader->scale_width * cmp);
 
-	yscaler_free(&ys);
-	free(inwidthbuf);
-	free(outwidthbuf);
-	png_destroy_write_struct(&png, &info);
+	if (png_get_interlace_type(reader->png, reader->info) == PNG_INTERLACE_NONE) {
+		yscaler_init(&args.ys, height, reader->scale_height,
+			reader->scale_width * cmp);
+		rb_protect((VALUE(*)(VALUE))each_interlace_none, (VALUE)&args, &state);
+		yscaler_free(&args.ys);
+	} else {
+		scanlines = malloc(height * sizeof(unsigned char *));
+		for (i=0; i<height; i++) {
+			scanlines[i] = malloc(row_bytes);
+		}
+
+		args.scanlines = scanlines;
+		rb_protect((VALUE(*)(VALUE))each_interlace, (VALUE)&args, &state);
+
+		for (i=0; i<height; i++) {
+			free(scanlines[i]);
+		}
+		free(scanlines);
+	}
+
+	free(args.inwidthbuf);
+	free(args.outwidthbuf);
+	png_destroy_write_struct(&wpng, &winfo);
 
 	if (state) {
 		rb_jump_tag(state);
