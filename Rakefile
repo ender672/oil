@@ -19,8 +19,6 @@ s = Gem::Specification.new('oil', '0.1.3') do |s|
     lib/oil.rb
     ext/oil/resample.c
     ext/oil/resample.h
-    ext/oil/yscaler.c
-    ext/oil/yscaler.h
     ext/oil/jpeg.c
     ext/oil/png.c
     ext/oil/oil.c

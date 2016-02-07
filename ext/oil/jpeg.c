@@ -2,7 +2,6 @@
 #include <ruby/st.h>
 #include <jpeglib.h>
 #include "resample.h"
-#include "yscaler.h"
 
 #define READ_SIZE 1024
 #define WRITE_SIZE 1024
@@ -50,7 +49,11 @@ static J_COLOR_SPACE sym_to_j_color_space(VALUE sym)
 	} else if (rb == id_YCCK) {
 		return JCS_YCCK;
 	} else if (rb == id_RGBX) {
+#ifdef JCS_EXTENSIONS
 		return JCS_EXT_RGBX;
+#else
+		return JCS_RGB;
+#endif
 	}
 	rb_raise(rb_eRuntimeError, "Color space not recognized.");
 }
@@ -755,11 +758,12 @@ static VALUE each2(struct write_jpeg_args *args)
 	struct writerdata *writer;
 	struct jpeg_decompress_struct *dinfo;
 	struct jpeg_compress_struct *cinfo;
-	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf;
+	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf, *psl_pos0;
 	struct yscaler *ys;
-	uint32_t i, scalex, scaley;
+	uint32_t i, scalex, scaley, width_in;
+	size_t psl_offset;
 	VALUE quality, markers;
-	int cmp, opts;
+	int cmp;
 
 	writer = args->writer;
 	inwidthbuf = args->inwidthbuf;
@@ -771,7 +775,7 @@ static VALUE each2(struct write_jpeg_args *args)
 	scaley = args->reader->scale_height;
 
 	cmp = dinfo->output_components;
-	opts = dinfo->out_color_space == JCS_EXT_RGBX ? OIL_FILLER : 0;
+	width_in = dinfo->output_width;
 
 	writer->mgr.init_destination = init_destination;
 	writer->mgr.empty_output_buffer = empty_output_buffer;
@@ -781,6 +785,9 @@ static VALUE each2(struct write_jpeg_args *args)
 	writer->cinfo.image_height = scaley;
 	writer->cinfo.in_color_space = dinfo->out_color_space;
 	writer->cinfo.input_components = cmp;
+
+	padded_sl_len_offset(width_in, scalex, cmp, &psl_offset);
+	psl_pos0 = inwidthbuf + psl_offset;
 
 	jpeg_set_defaults(cinfo);
 
@@ -804,10 +811,10 @@ static VALUE each2(struct write_jpeg_args *args)
 
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(ys))) {
-			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&inwidthbuf, 1);
-			xscale(inwidthbuf, dinfo->output_width, yinbuf, scalex, cmp, opts);
+			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&psl_pos0, 1);
+			xscale(psl_pos0, width_in, yinbuf, scalex, cmp);
 		}
-		yscaler_scale(ys, outwidthbuf, scalex, cmp, opts);
+		yscaler_scale(ys, outwidthbuf, i);
 		jpeg_write_scanlines(cinfo, (JSAMPARRAY)&outwidthbuf, 1);
 	}
 
@@ -837,6 +844,8 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	int cmp, state;
 	struct write_jpeg_args args;
 	unsigned char *inwidthbuf, *outwidthbuf;
+	uint32_t width_in, width_out;
+	size_t psl_len, psl_offset;
 	struct yscaler ys;
 	VALUE opts;
 
@@ -855,10 +864,13 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	jpeg_create_compress(&writer.cinfo);
 
 	cmp = reader->dinfo.output_components;
-	inwidthbuf = malloc(reader->dinfo.output_width * cmp);
-	outwidthbuf = malloc(reader->scale_width * cmp);
+	width_in = reader->dinfo.output_width;
+	width_out = reader->scale_width;
+	psl_len = padded_sl_len_offset(width_in, width_out, cmp, &psl_offset);
+	inwidthbuf = malloc(psl_len);
+	outwidthbuf = malloc(width_out * cmp);
 	yscaler_init(&ys, reader->dinfo.output_height, reader->scale_height,
-		reader->scale_width * cmp);
+		width_out * cmp);
 
 	args.reader = reader;
 	args.opts = opts;

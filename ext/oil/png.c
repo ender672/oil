@@ -1,7 +1,6 @@
 #include <ruby.h>
 #include <png.h>
 #include "resample.h"
-#include "yscaler.h"
 
 static ID id_read;
 
@@ -239,8 +238,8 @@ static VALUE each_interlace(struct each_args *args)
 	for (i=0; i<scaley; i++) {
 		yscaler_prealloc_scale(height, scaley,
 			(uint8_t **)args->scanlines, (uint8_t *)inwidthbuf,
-			i, width, cmp, 0);
-		xscale(inwidthbuf, width, outwidthbuf, scalex, cmp, 0);
+			i, width, cmp);
+		xscale(inwidthbuf, width, outwidthbuf, scalex, cmp);
 		png_write_row(args->wpng, outwidthbuf);
 	}
 	png_write_end(args->wpng, args->winfo);
@@ -269,9 +268,9 @@ static VALUE each_interlace_none(struct each_args *args)
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(ys))) {
 			png_read_row(reader->png, inwidthbuf, NULL);
-			xscale(inwidthbuf, width, yinbuf, scalex, cmp, 0);
+			xscale(inwidthbuf, width, yinbuf, scalex, cmp);
 		}
-		yscaler_scale(ys, outwidthbuf, scalex, cmp, 0);
+		yscaler_scale(ys, outwidthbuf, i);
 		png_write_row(args->wpng, outwidthbuf);
 	}
 
