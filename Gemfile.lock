@@ -1,0 +1,17 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    minitest (5.9.0)
+    rake (11.2.2)
+    rake-compiler (1.0.1)
+      rake
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  minitest
+  rake-compiler
+
+BUNDLED WITH
+   1.12.5
