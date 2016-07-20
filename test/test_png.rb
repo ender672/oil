@@ -42,7 +42,6 @@ class TestPNG < MiniTest::Test
   def test_bogus_end_chunk
     str = PNG_DATA.dup
     str[-6] = "\x10"
-    io = StringIO.new(str)
     o = Oil::PNGReader.new(png_io)
     assert_equal 1, o.width
     assert_equal 1, o.height
@@ -134,7 +133,7 @@ class TestPNG < MiniTest::Test
   def test_each_shrinks_buffer
     Oil::PNGReader.new(png_io).each { |d| d.slice!(0, 4) }
   end
-  
+
   def test_each_enlarges_buffer
     Oil::PNGReader.new(png_io).each { |d| d << "foobar" }
   end
