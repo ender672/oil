@@ -106,37 +106,37 @@ static VALUE marker_code_to_sym(int marker_code)
 	case JPEG_COM:
 		return ID2SYM(id_COM);
 	case JPEG_APP0:
-		return ID2SYM(id_APP0);	
+		return ID2SYM(id_APP0);
 	case JPEG_APP0 + 1:
-		return ID2SYM(id_APP1);	
+		return ID2SYM(id_APP1);
 	case JPEG_APP0 + 2:
-		return ID2SYM(id_APP2);	
+		return ID2SYM(id_APP2);
 	case JPEG_APP0 + 3:
-		return ID2SYM(id_APP3);	
+		return ID2SYM(id_APP3);
 	case JPEG_APP0 + 4:
-		return ID2SYM(id_APP4);	
+		return ID2SYM(id_APP4);
 	case JPEG_APP0 + 5:
-		return ID2SYM(id_APP5);	
+		return ID2SYM(id_APP5);
 	case JPEG_APP0 + 6:
-		return ID2SYM(id_APP6);	
+		return ID2SYM(id_APP6);
 	case JPEG_APP0 + 7:
-		return ID2SYM(id_APP7);	
+		return ID2SYM(id_APP7);
 	case JPEG_APP0 + 8:
-		return ID2SYM(id_APP8);	
+		return ID2SYM(id_APP8);
 	case JPEG_APP0 + 9:
-		return ID2SYM(id_APP9);	
+		return ID2SYM(id_APP9);
 	case JPEG_APP0 + 10:
-		return ID2SYM(id_APP10);	
+		return ID2SYM(id_APP10);
 	case JPEG_APP0 + 11:
-		return ID2SYM(id_APP11);	
+		return ID2SYM(id_APP11);
 	case JPEG_APP0 + 12:
-		return ID2SYM(id_APP12);	
+		return ID2SYM(id_APP12);
 	case JPEG_APP0 + 13:
-		return ID2SYM(id_APP13);	
+		return ID2SYM(id_APP13);
 	case JPEG_APP0 + 14:
-		return ID2SYM(id_APP14);	
+		return ID2SYM(id_APP14);
 	case JPEG_APP0 + 15:
-		return ID2SYM(id_APP15);	
+		return ID2SYM(id_APP15);
 	}
 	rb_raise(rb_eRuntimeError, "Marker code not recognized.");
 }
@@ -277,7 +277,7 @@ static void raise_if_locked(struct readerdata *reader)
  *
  *     io = File.open("image.jpg", "r")
  *     reader = Oil::JPEGReader.new(io)
- * 
+ *
  *     io = File.open("image.jpg", "r")
  *     reader = Oil::JPEGReader.new(io, [:APP1, :APP2])
  */
@@ -750,7 +750,8 @@ struct write_jpeg_args {
 	struct writerdata *writer;
 	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
-	struct yscaler *ys;
+	struct yscaler ys;
+	struct xscaler xs;
 };
 
 static VALUE each2(struct write_jpeg_args *args)
@@ -758,24 +759,20 @@ static VALUE each2(struct write_jpeg_args *args)
 	struct writerdata *writer;
 	struct jpeg_decompress_struct *dinfo;
 	struct jpeg_compress_struct *cinfo;
-	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf, *psl_pos0;
-	struct yscaler *ys;
-	uint32_t i, scalex, scaley, width_in;
-	size_t psl_offset;
+	unsigned char *outwidthbuf, *yinbuf, *psl_pos0;
+	uint32_t i, scalex, scaley;
 	VALUE quality, markers;
-	int cmp;
+	int cmp, filler;
 
 	writer = args->writer;
-	inwidthbuf = args->inwidthbuf;
 	outwidthbuf = args->outwidthbuf;
-	ys = args->ys;
 	dinfo = &args->reader->dinfo;
 	cinfo = &writer->cinfo;
 	scalex = args->reader->scale_width;
 	scaley = args->reader->scale_height;
 
 	cmp = dinfo->output_components;
-	width_in = dinfo->output_width;
+	filler = dinfo->out_color_space == JCS_EXT_RGBX;
 
 	writer->mgr.init_destination = init_destination;
 	writer->mgr.empty_output_buffer = empty_output_buffer;
@@ -786,8 +783,7 @@ static VALUE each2(struct write_jpeg_args *args)
 	writer->cinfo.in_color_space = dinfo->out_color_space;
 	writer->cinfo.input_components = cmp;
 
-	padded_sl_len_offset(width_in, scalex, cmp, &psl_offset);
-	psl_pos0 = inwidthbuf + psl_offset;
+	psl_pos0 = xscaler_psl_pos0(&args->xs);
 
 	jpeg_set_defaults(cinfo);
 
@@ -810,11 +806,11 @@ static VALUE each2(struct write_jpeg_args *args)
 	}
 
 	for(i=0; i<scaley; i++) {
-		while ((yinbuf = yscaler_next(ys))) {
+		while ((yinbuf = yscaler_next(&args->ys))) {
 			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&psl_pos0, 1);
-			xscale(psl_pos0, width_in, yinbuf, scalex, cmp);
+			xscaler_scale(&args->xs, yinbuf);
 		}
-		yscaler_scale(ys, outwidthbuf, i);
+		yscaler_scale(&args->ys, outwidthbuf, i, cmp, filler);
 		jpeg_write_scanlines(cinfo, (JSAMPARRAY)&outwidthbuf, 1);
 	}
 
@@ -841,12 +837,11 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 {
 	struct readerdata *reader;
 	struct writerdata writer;
-	int cmp, state;
+	int cmp, state, filler;
 	struct write_jpeg_args args;
 	unsigned char *inwidthbuf, *outwidthbuf;
 	uint32_t width_in, width_out;
 	size_t psl_len, psl_offset;
-	struct yscaler ys;
 	VALUE opts;
 
 	rb_scan_args(argc, argv, "01", &opts);
@@ -863,13 +858,16 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	writer.cinfo.err = &reader->jerr;
 	jpeg_create_compress(&writer.cinfo);
 
+	filler = reader->dinfo.out_color_space == JCS_EXT_RGBX;
 	cmp = reader->dinfo.output_components;
 	width_in = reader->dinfo.output_width;
 	width_out = reader->scale_width;
 	psl_len = padded_sl_len_offset(width_in, width_out, cmp, &psl_offset);
 	inwidthbuf = malloc(psl_len);
 	outwidthbuf = malloc(width_out * cmp);
-	yscaler_init(&ys, reader->dinfo.output_height, reader->scale_height,
+	xscaler_init(&args.xs, reader->dinfo.output_width, reader->scale_width,
+		cmp, filler);
+	yscaler_init(&args.ys, reader->dinfo.output_height, reader->scale_height,
 		width_out * cmp);
 
 	args.reader = reader;
@@ -877,11 +875,10 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	args.writer = &writer;
 	args.inwidthbuf = inwidthbuf;
 	args.outwidthbuf = outwidthbuf;
-	args.ys = &ys;
 	reader->locked = 1;
 	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
 
-	yscaler_free(&ys);
+	yscaler_free(&args.ys);
 	free(inwidthbuf);
 	free(outwidthbuf);
 	jpeg_destroy_compress(&writer.cinfo);
