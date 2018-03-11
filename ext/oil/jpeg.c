@@ -752,7 +752,6 @@ struct write_jpeg_args {
 	VALUE opts;
 	struct readerdata *reader;
 	struct writerdata *writer;
-	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
 	struct yscaler ys;
 	struct xscaler xs;
@@ -847,9 +846,8 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	struct writerdata writer;
 	int cmp, state, filler;
 	struct write_jpeg_args args;
-	unsigned char *inwidthbuf, *outwidthbuf;
+	unsigned char *outwidthbuf;
 	uint32_t width_in, width_out;
-	size_t psl_len, psl_offset;
 	VALUE opts;
 
 	rb_scan_args(argc, argv, "01", &opts);
@@ -874,24 +872,20 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	cmp = reader->dinfo.output_components;
 	width_in = reader->dinfo.output_width;
 	width_out = reader->scale_width;
-	psl_len = padded_sl_len_offset(width_in, width_out, cmp, &psl_offset);
-	inwidthbuf = malloc(psl_len);
 	outwidthbuf = malloc(width_out * cmp);
-	xscaler_init(&args.xs, reader->dinfo.output_width, reader->scale_width,
-		cmp, filler);
+	xscaler_init(&args.xs, width_in, width_out, cmp, filler);
 	yscaler_init(&args.ys, reader->dinfo.output_height, reader->scale_height,
 		width_out * cmp);
 
 	args.reader = reader;
 	args.opts = opts;
 	args.writer = &writer;
-	args.inwidthbuf = inwidthbuf;
 	args.outwidthbuf = outwidthbuf;
 	reader->locked = 1;
 	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
 
 	yscaler_free(&args.ys);
-	free(inwidthbuf);
+	xscaler_free(&args.xs);
 	free(outwidthbuf);
 	jpeg_destroy_compress(&writer.cinfo);
 
