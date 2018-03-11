@@ -752,9 +752,10 @@ struct write_jpeg_args {
 	VALUE opts;
 	struct readerdata *reader;
 	struct writerdata *writer;
+	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
 	struct yscaler ys;
-	struct xscaler xs;
+	struct preprocess_xscaler xs;
 };
 
 static VALUE each2(struct write_jpeg_args *args)
@@ -762,10 +763,10 @@ static VALUE each2(struct write_jpeg_args *args)
 	struct writerdata *writer;
 	struct jpeg_decompress_struct *dinfo;
 	struct jpeg_compress_struct *cinfo;
-	unsigned char *outwidthbuf, *yinbuf, *psl_pos0;
+	unsigned char *outwidthbuf, *xinbuf;
+	uint16_t *yinbuf;
 	uint32_t i, scalex, scaley;
 	VALUE quality, markers;
-	int cmp, filler;
 
 	writer = args->writer;
 	outwidthbuf = args->outwidthbuf;
@@ -774,13 +775,6 @@ static VALUE each2(struct write_jpeg_args *args)
 	scalex = args->reader->scale_width;
 	scaley = args->reader->scale_height;
 
-	cmp = dinfo->output_components;
-#ifdef JCS_EXTENSIONS
-	filler = dinfo->out_color_space == JCS_EXT_RGBX;
-#else
-	filler = 0;
-#endif
-
 	writer->mgr.init_destination = init_destination;
 	writer->mgr.empty_output_buffer = empty_output_buffer;
 	writer->mgr.term_destination = term_destination;
@@ -788,9 +782,9 @@ static VALUE each2(struct write_jpeg_args *args)
 	writer->cinfo.image_width = scalex;
 	writer->cinfo.image_height = scaley;
 	writer->cinfo.in_color_space = dinfo->out_color_space;
-	writer->cinfo.input_components = cmp;
+	writer->cinfo.input_components = dinfo->output_components;
 
-	psl_pos0 = xscaler_psl_pos0(&args->xs);
+	xinbuf = args->inwidthbuf;
 
 	jpeg_set_defaults(cinfo);
 
@@ -814,16 +808,34 @@ static VALUE each2(struct write_jpeg_args *args)
 
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(&args->ys))) {
-			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&psl_pos0, 1);
-			xscaler_scale(&args->xs, yinbuf);
+			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&xinbuf, 1);
+			preprocess_xscaler_scale(&args->xs, xinbuf, yinbuf);
 		}
-		yscaler_scale(&args->ys, outwidthbuf, i, cmp, filler);
+		yscaler_scale(&args->ys, outwidthbuf, i);
 		jpeg_write_scanlines(cinfo, (JSAMPARRAY)&outwidthbuf, 1);
 	}
 
 	jpeg_finish_compress(cinfo);
 
 	return Qnil;
+}
+
+static enum oil_colorspace jpeg_cs_to_oil(J_COLOR_SPACE cs)
+{
+	switch(cs) {
+	case JCS_GRAYSCALE:
+		return OIL_CS_G;
+	case JCS_RGB:
+		return OIL_CS_RGB;
+	case JCS_CMYK:
+		return OIL_CS_CMYK;
+#ifdef JCS_EXTENSIONS
+	case JCS_EXT_RGBX:
+		return OIL_CS_RGBX;
+#endif
+	default:
+		rb_raise(rb_eRuntimeError, "Color space not recognized.");
+	}
 }
 
 /*
@@ -844,11 +856,12 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 {
 	struct readerdata *reader;
 	struct writerdata writer;
-	int cmp, state, filler;
+	int state;
 	struct write_jpeg_args args;
-	unsigned char *outwidthbuf;
+	unsigned char *inwidthbuf, *outwidthbuf;
 	uint32_t width_in, width_out;
 	VALUE opts;
+	enum oil_colorspace cs;
 
 	rb_scan_args(argc, argv, "01", &opts);
 
@@ -864,29 +877,27 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	writer.cinfo.err = &reader->jerr;
 	jpeg_create_compress(&writer.cinfo);
 
-#ifdef JCS_EXTENSIONS
-	filler = reader->dinfo.out_color_space == JCS_EXT_RGBX;
-#else
-	filler = 0;
-#endif
-	cmp = reader->dinfo.output_components;
+	cs = jpeg_cs_to_oil(reader->dinfo.out_color_space);
 	width_in = reader->dinfo.output_width;
 	width_out = reader->scale_width;
-	outwidthbuf = malloc(width_out * cmp);
-	xscaler_init(&args.xs, width_in, width_out, cmp, filler);
+	inwidthbuf = malloc(width_in * CS_TO_CMP(cs));
+	outwidthbuf = malloc(width_out * CS_TO_CMP(cs));
+	preprocess_xscaler_init(&args.xs, width_in, width_out, cs);
 	yscaler_init(&args.ys, reader->dinfo.output_height, reader->scale_height,
-		width_out * cmp);
+		width_out, cs);
 
 	args.reader = reader;
 	args.opts = opts;
 	args.writer = &writer;
+	args.inwidthbuf = inwidthbuf;
 	args.outwidthbuf = outwidthbuf;
 	reader->locked = 1;
 	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
 
 	yscaler_free(&args.ys);
-	xscaler_free(&args.xs);
+	preprocess_xscaler_free(&args.xs);
 	free(outwidthbuf);
+	free(inwidthbuf);
 	jpeg_destroy_compress(&writer.cinfo);
 
 	if (state) {

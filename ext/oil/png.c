@@ -210,39 +210,41 @@ struct each_args {
 	struct readerdata *reader;
 	png_structp wpng;
 	png_infop winfo;
+	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
 	unsigned char **scanlines;
 	struct yscaler ys;
-	struct xscaler xs;
+	struct preprocess_xscaler xs;
 };
 
 static VALUE each_interlace(struct each_args *args)
 {
 	struct readerdata *reader;
-	unsigned char *inwidthbuf, *outwidthbuf;
-	uint32_t i, width, height, scaley;
-	int cmp;
-	struct xscaler *xs;
+	unsigned char **scanlines, *outwidthbuf;
+	uint32_t i, n, scaley;
+	uint16_t *yinbuf;
+	struct yscaler *ys;
+	struct preprocess_xscaler *xs;
 
 	reader = args->reader;
 	xs = &args->xs;
-	inwidthbuf = xscaler_psl_pos0(xs);
+	ys = &args->ys;
+	scanlines = args->scanlines;
 	outwidthbuf = args->outwidthbuf;
 	scaley = reader->scale_height;
-	cmp = png_get_channels(reader->png, reader->info);
-	width = png_get_image_width(reader->png, reader->info);
-	height = png_get_image_height(reader->png, reader->info);
 
 	png_write_info(args->wpng, args->winfo);
 	png_read_image(args->reader->png, (png_bytepp)args->scanlines);
 
-	for (i=0; i<scaley; i++) {
-		yscaler_prealloc_scale(height, scaley,
-			(uint8_t **)args->scanlines, (uint8_t *)inwidthbuf,
-			i, width, cmp, 0);
-		xscaler_scale(xs, outwidthbuf);
+	n = 0;
+	for(i=0; i<scaley; i++) {
+		while ((yinbuf = yscaler_next(ys))) {
+			preprocess_xscaler_scale(xs, scanlines[n++], yinbuf);
+		}
+		yscaler_scale(ys, outwidthbuf, i);
 		png_write_row(args->wpng, outwidthbuf);
 	}
+
 	png_write_end(args->wpng, args->winfo);
 	return Qnil;
 }
@@ -250,33 +252,47 @@ static VALUE each_interlace(struct each_args *args)
 static VALUE each_interlace_none(struct each_args *args)
 {
 	struct readerdata *reader;
-	unsigned char *inwidthbuf, *outwidthbuf, *yinbuf;
-	struct xscaler *xs;
+	unsigned char *inwidthbuf, *outwidthbuf;
+	uint16_t *yinbuf;
+	struct preprocess_xscaler *xs;
 	struct yscaler *ys;
 	uint32_t i, scaley;
-	int cmp;
 
 	reader = args->reader;
 	xs = &args->xs;
-	inwidthbuf = xscaler_psl_pos0(xs);
+	inwidthbuf = args->inwidthbuf;
 	outwidthbuf = args->outwidthbuf;
 	ys = &args->ys;
 	scaley = reader->scale_height;
-	cmp = png_get_channels(reader->png, reader->info);
 
 	png_write_info(args->wpng, args->winfo);
 
 	for(i=0; i<scaley; i++) {
 		while ((yinbuf = yscaler_next(ys))) {
 			png_read_row(reader->png, inwidthbuf, NULL);
-			xscaler_scale(xs, yinbuf);
+			preprocess_xscaler_scale(xs, inwidthbuf, yinbuf);
 		}
-		yscaler_scale(ys, outwidthbuf, i, cmp, 0);
+		yscaler_scale(ys, outwidthbuf, i);
 		png_write_row(args->wpng, outwidthbuf);
 	}
 
 	png_write_end(args->wpng, args->winfo);
 	return Qnil;
+}
+
+static enum oil_colorspace png_cs_to_oil(png_byte cs)
+{
+	switch(cs) {
+	case PNG_COLOR_TYPE_GRAY:
+		return OIL_CS_G;
+	case PNG_COLOR_TYPE_GA:
+		return OIL_CS_GA;
+	case PNG_COLOR_TYPE_RGB:
+		return OIL_CS_RGB;
+	case PNG_COLOR_TYPE_RGBA:
+		return OIL_CS_RGBA;
+	}
+	rb_raise(rb_eRuntimeError, "Color space not recognized.");
 }
 
 /*
@@ -305,6 +321,7 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	png_byte ctype;
 	unsigned char **scanlines;
 	size_t row_bytes;
+	enum oil_colorspace cs;
 
 	rb_scan_args(argc, argv, "01", &opts);
 
@@ -313,13 +330,14 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	raise_if_locked(reader);
 	reader->locked = 1;
 
+	cmp = png_get_channels(reader->png, reader->info);
+	ctype = png_get_color_type(reader->png, reader->info);
+	cs = png_cs_to_oil(ctype);
+
 	wpng = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL,
 		(png_error_ptr)error, (png_error_ptr)warning);
 	winfo = png_create_info_struct(wpng);
 	png_set_write_fn(wpng, 0, write_data_fn, flush_data_fn);
-
-	cmp = png_get_channels(reader->png, reader->info);
-	ctype = png_get_color_type(reader->png, reader->info);
 
 	png_set_IHDR(wpng, winfo, reader->scale_width, reader->scale_height, 8,
 		ctype, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
@@ -334,13 +352,13 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	args.winfo = winfo;
 	args.outwidthbuf = malloc(reader->scale_width * cmp);
 
-	xscaler_init(&args.xs, width, reader->scale_width, cmp, 0);
+	preprocess_xscaler_init(&args.xs, width, reader->scale_width, cs);
+	yscaler_init(&args.ys, height, reader->scale_height, reader->scale_width, cs);
 
 	if (png_get_interlace_type(reader->png, reader->info) == PNG_INTERLACE_NONE) {
-		yscaler_init(&args.ys, height, reader->scale_height,
-			reader->scale_width * cmp);
+		args.inwidthbuf = malloc(width * cmp);
 		rb_protect((VALUE(*)(VALUE))each_interlace_none, (VALUE)&args, &state);
-		yscaler_free(&args.ys);
+		free(args.inwidthbuf);
 	} else {
 		scanlines = malloc(height * sizeof(unsigned char *));
 		for (i=0; i<height; i++) {
@@ -356,7 +374,8 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 		free(scanlines);
 	}
 
-	xscaler_free(&args.xs);
+	yscaler_free(&args.ys);
+	preprocess_xscaler_free(&args.xs);
 	free(args.outwidthbuf);
 	png_destroy_write_struct(&wpng, &winfo);
 

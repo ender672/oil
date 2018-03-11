@@ -36,10 +36,6 @@ module Oil
     end
 
     # JPEG Pre-scaling is equivalent to a box filter at an integer scale factor.
-    scale_num, scale_denom = Oil.cubic_scale_ratio(o.image_width, box_width)
-    o.scale_num = scale_num
-    o.scale_denom = scale_denom
-
     destw, desth = Oil.fix_ratio(o.output_width, o.output_height, box_width, box_height)
     o.scale_width = destw
     o.scale_height = desth
