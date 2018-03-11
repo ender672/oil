@@ -210,7 +210,6 @@ struct each_args {
 	struct readerdata *reader;
 	png_structp wpng;
 	png_infop winfo;
-	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
 	unsigned char **scanlines;
 	struct yscaler ys;
@@ -333,7 +332,6 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	args.reader = reader;
 	args.wpng = wpng;
 	args.winfo = winfo;
-	args.inwidthbuf = malloc(row_bytes);
 	args.outwidthbuf = malloc(reader->scale_width * cmp);
 
 	xscaler_init(&args.xs, width, reader->scale_width, cmp, 0);
@@ -359,7 +357,6 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	}
 
 	xscaler_free(&args.xs);
-	free(args.inwidthbuf);
 	free(args.outwidthbuf);
 	png_destroy_write_struct(&wpng, &winfo);
 
