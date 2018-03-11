@@ -11,6 +11,9 @@ performance and low memory use.
 
   $ gem install oil
 
+  # when using homebrew w/ jpeg-turbo
+  $ gem install oil --with-ldflags=-L/usr/local/opt/jpeg-turbo/lib --with-cflags=-I/usr/local/opt/jpeg-turbo/include
+
 == SYNOPSIS:
 
   require 'oil'
