@@ -51,6 +51,18 @@ module Oil
     return destw, desth
   end
 
+  def self.cubic_scale_ratio(src_dim, out_dim)
+    tmp = out_dim * 8 * 3 / (src_dim * 2)
+    rest = out_dim * 8 * 3 % (src_dim * 2)
+    if (rest)
+      tmp += 1
+    end
+    if (tmp < 8)
+      return tmp, 8
+    end
+    return 1, 1
+  end
+
   def self.new_jpeg_reader(io, box_width, box_height)
     o = JPEGReader.new(io, [:COM, :APP1, :APP2])
 
@@ -62,16 +74,9 @@ module Oil
     # JPEG Pre-scaling is equivalent to a box filter at an integer scale factor.
     # We don't use this to scale down past 4x the target image size in order to
     # get proper bicubic scaling in the final image.
-    inv_scale = o.image_width / box_width
-    inv_scale /= 4
-
-    if inv_scale >= 8
-      o.scale_denom = 8
-    elsif inv_scale >= 4
-      o.scale_denom = 4
-    elsif inv_scale >= 2
-      o.scale_denom = 2
-    end
+    scale_num, scale_denom = self.cubic_scale_ratio(o.image_width, box_width)
+    o.scale_num = scale_num
+    o.scale_denom = scale_denom
 
     destw, desth = self.fix_ratio(o.output_width, o.output_height, box_width, box_height)
     o.scale_width = destw

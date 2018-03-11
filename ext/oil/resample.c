@@ -128,7 +128,7 @@ uint64_t calc_taps(uint32_t dim_in, uint32_t dim_out)
 		return TAPS;
 	}
 	tmp = (uint64_t)TAPS * dim_in / dim_out;
-	return tmp + (tmp & 1);
+	return tmp - (tmp & 1);
 }
 
 /**
@@ -159,18 +159,21 @@ static fix1_30 f_to_fix1_30(float x)
 static void calc_coeffs(fix1_30 *coeffs, float tx, uint32_t taps)
 {
 	uint32_t i;
-	float tmp, tap_mult;
+	float tmp, tap_mult, fudge;
 	fix1_30 tmp_fixed;
 
 	tap_mult = (float)taps / TAPS;
 	tx = 1 - tx - taps / 2;
+	fudge = 1.0;
 
 	for (i=0; i<taps; i++) {
 		tmp = catrom(fabsf(tx) / tap_mult) / tap_mult;
+		fudge -= tmp;
 		tmp_fixed = f_to_fix1_30(tmp);
 		coeffs[i] = tmp_fixed;
 		tx += 1;
 	}
+	coeffs[taps / 2] += f_to_fix1_30(fudge);
 }
 
 /* bicubic y-scaler */
@@ -180,15 +183,15 @@ void strip_scale_generic(uint8_t **in, uint32_t strip_height, size_t len,
 {
 	size_t i;
 	uint32_t j;
-	fix33_30 coeff, total;
+	fix33_30 coeff, sum;
 
 	for (i=0; i<len; i++) {
-		total = 0;
+		sum = 0;
 		for (j=0; j<strip_height; j++) {
 			coeff = coeffs[j];
-			total += coeff * in[j][i];
+			sum += coeff * in[j][i];
 		}
-		out[i] = clamp(total);
+		out[i] = clamp(sum);
 	}
 }
 
@@ -196,22 +199,21 @@ void strip_scale_rgbx(uint8_t **in, uint32_t strip_height, size_t len,
 	uint8_t *out, fix1_30 *coeffs)
 {
 	size_t i;
-	uint32_t j, sample, **in32;
+	uint32_t j;
 	fix33_30 coeff, sum[3];
 
-	in32 = (uint32_t **)in;
-	for (i=0; i<len/4; i++) {
+	for (i=0; i<len; i+=4) {
 		sum[0] = sum[1] = sum[2] = 0;
 		for (j=0; j<strip_height; j++) {
 			coeff = coeffs[j];
-			sample = in32[j][i];
-			sum[0] += coeff *  (sample & 0x000000FF);
-			sum[1] += coeff * ((sample & 0x0000FF00) >> 8);
-			sum[2] += coeff * ((sample & 0x00FF0000) >> 16);
+			sum[0] += coeff * in[j][i];
+			sum[1] += coeff * in[j][i + 1];
+			sum[2] += coeff * in[j][i + 2];
 		}
-		((uint32_t *)out)[i] = clamp(sum[0]) +
-			((uint32_t)clamp(sum[1]) << 8) +
-			((uint32_t)clamp(sum[2]) << 16);
+		out[0] = clamp(sum[0]);
+		out[1] = clamp(sum[1]);
+		out[2] = clamp(sum[2]);
+		out += 4;
 	}
 }
 
@@ -219,24 +221,23 @@ void strip_scale_32(uint8_t **in, uint32_t strip_height, size_t len,
 	uint8_t *out, fix1_30 *coeffs)
 {
 	size_t i;
-	uint32_t j, sample, **in32;
+	uint32_t j;
 	fix33_30 coeff, sum[4];
 
-	in32 = (uint32_t **)in;
-	for (i=0; i<len/4; i++) {
+	for (i=0; i<len; i+=4) {
 		sum[0] = sum[1] = sum[2] = sum[3] = 0;
 		for (j=0; j<strip_height; j++) {
 			coeff = coeffs[j];
-			sample = in32[j][i];
-			sum[0] += coeff *  (sample & 0x000000FF);
-			sum[1] += coeff * ((sample & 0x0000FF00) >> 8);
-			sum[2] += coeff * ((sample & 0x00FF0000) >> 16);
-			sum[3] += coeff * ((sample & 0xFF000000) >> 24);
+			sum[0] += coeff * in[j][i];
+			sum[1] += coeff * in[j][i + 1];
+			sum[2] += coeff * in[j][i + 2];
+			sum[3] += coeff * in[j][i + 3];
 		}
-		((uint32_t *)out)[i] = clamp(sum[0]) +
-			((uint32_t)clamp(sum[1]) << 8) +
-			((uint32_t)clamp(sum[2]) << 16) +
-			((uint32_t)clamp(sum[3]) << 24);
+		out[0] = clamp(sum[0]);
+		out[1] = clamp(sum[1]);
+		out[2] = clamp(sum[2]);
+		out[3] = clamp(sum[3]);
+		out += 4;
 	}
 }
 
@@ -285,41 +286,41 @@ static void sample_generic(uint32_t taps, fix1_30 *coeffs, uint8_t *in,
 static void sample_rgba(uint32_t taps, fix1_30 *coeffs, uint8_t *in,
 	uint8_t *out)
 {
-	uint32_t i, sample;
+	uint32_t i;
 	fix33_30 sum[4], coeff;
 
 	sum[0] = sum[1] = sum[2] = sum[3] = 0;
 	for (i=0; i<taps; i++) {
 		coeff = coeffs[i];
-		sample = ((uint32_t *)in)[i];
-		sum[0] += coeff *  (sample & 0x000000FF);
-		sum[1] += coeff * ((sample & 0x0000FF00) >> 8);
-		sum[2] += coeff * ((sample & 0x00FF0000) >> 16);
-		sum[3] += coeff * ((sample & 0xFF000000) >> 24);
+		sum[0] += coeff * in[0];
+		sum[1] += coeff * in[1];
+		sum[2] += coeff * in[2];
+		sum[3] += coeff * in[3];
+		in += 4;
 	}
-	*(uint32_t *)out = clamp(sum[0]) +
-		((uint32_t)clamp(sum[1]) << 8) +
-		((uint32_t)clamp(sum[2]) << 16) +
-		((uint32_t)clamp(sum[3]) << 24);
+	out[0] = clamp(sum[0]);
+	out[1] = clamp(sum[1]);
+	out[2] = clamp(sum[2]);
+	out[3] = clamp(sum[3]);
 }
 
 static void sample_rgbx(uint32_t taps, fix1_30 *coeffs, uint8_t *in,
 	uint8_t *out)
 {
-	uint32_t i, sample;
+	uint32_t i;
 	fix33_30 sum[3], coeff;
 
 	sum[0] = sum[1] = sum[2] = 0;
 	for (i=0; i<taps; i++) {
 		coeff = coeffs[i];
-		sample = ((uint32_t *)in)[i];
-		sum[0] += coeff *  (sample & 0x000000FF);
-		sum[1] += coeff * ((sample & 0x0000FF00) >> 8);
-		sum[2] += coeff * ((sample & 0x00FF0000) >> 16);
+		sum[0] += coeff * in[0];
+		sum[1] += coeff * in[1];
+		sum[2] += coeff * in[2];
+		in += 4;
 	}
-	*(uint32_t *)out = clamp(sum[0]) +
-		((uint32_t)clamp(sum[1]) << 8) +
-		((uint32_t)clamp(sum[2]) << 16);
+	out[0] = clamp(sum[0]);
+	out[1] = clamp(sum[1]);
+	out[2] = clamp(sum[2]);
 }
 
 static void xscale_set_sample(uint32_t taps, fix1_30 *coeffs, uint8_t *in,
@@ -355,35 +356,6 @@ size_t padded_sl_len_offset(uint32_t in_width, uint32_t out_width,
 	taps = calc_taps(in_width, out_width);
 	*offset = (taps / 2 + 1) * cmp;
 	return (size_t)in_width * cmp + *offset * 2;
-}
-
-void xscale2(uint8_t *row_in, uint8_t *out, uint32_t width_in,
-	uint32_t width_out, uint32_t taps, uint32_t xpos, uint8_t cmp)
-{
-	double x, tx, coeff, sum[4];
-	uint32_t i, j, smp_i;
-	int32_t val;
-
-	sum[0] = sum[1] = sum[2] = sum[3] = 0.0;
-	smp_i = (uint64_t)xpos * width_in / width_out;
-	tx = ((uint64_t)xpos * width_in % width_out) / (double)width_out;
-
-	for (i=1; i<=taps*2; i++) {
-		x = (i > taps ? i - taps - tx : taps - i + tx) / (taps / 2);
-		if (x < 1) {
-			coeff = (3*x*x*x - 5*x*x + 2) / taps;
-		} else {
-			coeff = (-1*x*x*x + 5*x*x - 8*x + 4) / taps;
-		}
-		for (j=0; j<4; j++) {
-			sum[j] += row_in[smp_i * cmp + j] / 255.0 * coeff;
-		}
-	}
-
-	for (i=0; i<4; i++) {
-		val = 255 * sum[i];
-		out[i] = val < 0 ? 0 : (val > 255 ? 255 : val);
-	}
 }
 
 int xscale_padded(uint8_t *in, uint32_t in_width, uint8_t *out,
@@ -613,18 +585,18 @@ void fix_ratio(uint32_t src_width, uint32_t src_height, uint32_t *out_width,
 	}
 }
 
-int cubic_scale_denom(uint32_t src_dim, uint32_t out_dim)
+int cubic_scale_ratio(uint32_t src_dim, uint32_t out_dim, int *scale_num)
 {
-	uint32_t scale_factor;
-
-	scale_factor = src_dim / out_dim;
-	if (scale_factor >= 8 * 4) {
-		return 8;
-	} else if (scale_factor >= 4 * 4) {
-		return 4;
-	} else if (scale_factor >= 2 * 4) {
-		return 2;
-	} else {
-		return 1;
+	int tmp, rest;
+	tmp = out_dim * 8 * 3 / (src_dim * 2);
+	rest = out_dim * 8 * 3 % (src_dim * 2);
+	if (rest) {
+		tmp += 1;
 	}
+	if (tmp < 8) {
+		*scale_num = tmp;
+		return 8;
+	}
+	*scale_num = 1;
+	return 1;
 }
