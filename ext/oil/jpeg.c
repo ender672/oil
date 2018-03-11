@@ -29,6 +29,10 @@ static ID j_color_space_to_id(J_COLOR_SPACE cs)
 		return id_CMYK;
 	case JCS_YCCK:
 		return id_YCCK;
+#ifdef JCS_EXTENSIONS
+	case JCS_EXT_RGBX:
+		return id_RGBX;
+#endif
 	default:
 		return id_UNKNOWN;
 	}
@@ -772,7 +776,11 @@ static VALUE each2(struct write_jpeg_args *args)
 	scaley = args->reader->scale_height;
 
 	cmp = dinfo->output_components;
+#ifdef JCS_EXTENSIONS
 	filler = dinfo->out_color_space == JCS_EXT_RGBX;
+#else
+	filler = 0;
+#endif
 
 	writer->mgr.init_destination = init_destination;
 	writer->mgr.empty_output_buffer = empty_output_buffer;
@@ -858,7 +866,11 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	writer.cinfo.err = &reader->jerr;
 	jpeg_create_compress(&writer.cinfo);
 
+#ifdef JCS_EXTENSIONS
 	filler = reader->dinfo.out_color_space == JCS_EXT_RGBX;
+#else
+	filler = 0;
+#endif
 	cmp = reader->dinfo.output_components;
 	width_in = reader->dinfo.output_width;
 	width_out = reader->scale_width;
