@@ -1,6 +1,6 @@
 require 'mkmf'
 
-$CFLAGS += " -O3 -ffast-math -march=native"
+$CFLAGS += " -O3 -march=native"
 
 unless have_header('jpeglib.h')
   abort "libjpeg headers were not found."
