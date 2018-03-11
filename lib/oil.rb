@@ -1,5 +1,5 @@
 module Oil
-  VERSION = "0.1.3"
+  VERSION = "0.2.0"
 
   def self.sniff_signature(io)
     a = io.getc
