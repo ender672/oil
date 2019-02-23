@@ -17,8 +17,12 @@ s = Gem::Specification.new('oil', '0.2.0') do |s|
     README.rdoc
     MIT-LICENSE
     lib/oil.rb
-    ext/oil/resample.c
-    ext/oil/resample.h
+    ext/oil/oil_resample.c
+    ext/oil/oil_resample.h
+    ext/oil/oil_libjpeg.c
+    ext/oil/oil_libjpeg.h
+    ext/oil/oil_libpng.c
+    ext/oil/oil_libpng.h
     ext/oil/jpeg.c
     ext/oil/png.c
     ext/oil/oil.c

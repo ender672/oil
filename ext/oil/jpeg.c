@@ -1,7 +1,7 @@
 #include <ruby.h>
 #include <ruby/st.h>
 #include <jpeglib.h>
-#include "resample.h"
+#include "oil_libjpeg.h"
 
 #define READ_SIZE 1024
 #define WRITE_SIZE 1024
@@ -170,8 +170,8 @@ struct readerdata {
 	int locked;
 	VALUE source_io;
 	VALUE buffer;
-	uint32_t scale_width;
-	uint32_t scale_height;
+	int scale_width;
+	int scale_height;
 };
 
 static void null_jdecompress(j_decompress_ptr dinfo) {}
@@ -754,8 +754,7 @@ struct write_jpeg_args {
 	struct writerdata *writer;
 	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
-	struct yscaler ys;
-	struct preprocess_xscaler xs;
+	struct oil_libjpeg ol;
 };
 
 static VALUE each2(struct write_jpeg_args *args)
@@ -763,12 +762,13 @@ static VALUE each2(struct write_jpeg_args *args)
 	struct writerdata *writer;
 	struct jpeg_decompress_struct *dinfo;
 	struct jpeg_compress_struct *cinfo;
-	unsigned char *outwidthbuf, *xinbuf;
-	uint16_t *yinbuf;
-	uint32_t i, scalex, scaley;
+	unsigned char *outwidthbuf;
+	int i, scalex, scaley;
 	VALUE quality, markers;
+	struct oil_libjpeg *ol;
 
 	writer = args->writer;
+	ol = &args->ol;
 	outwidthbuf = args->outwidthbuf;
 	dinfo = &args->reader->dinfo;
 	cinfo = &writer->cinfo;
@@ -783,8 +783,6 @@ static VALUE each2(struct write_jpeg_args *args)
 	writer->cinfo.image_height = scaley;
 	writer->cinfo.in_color_space = dinfo->out_color_space;
 	writer->cinfo.input_components = dinfo->output_components;
-
-	xinbuf = args->inwidthbuf;
 
 	jpeg_set_defaults(cinfo);
 
@@ -806,36 +804,14 @@ static VALUE each2(struct write_jpeg_args *args)
 		}
 	}
 
-	for(i=0; i<scaley; i++) {
-		while ((yinbuf = yscaler_next(&args->ys))) {
-			jpeg_read_scanlines(dinfo, (JSAMPARRAY)&xinbuf, 1);
-			preprocess_xscaler_scale(&args->xs, xinbuf, yinbuf);
-		}
-		yscaler_scale(&args->ys, outwidthbuf, i);
+	for(i=scaley; i>0; i--) {
+		oil_libjpeg_read_scanline(ol, outwidthbuf);
 		jpeg_write_scanlines(cinfo, (JSAMPARRAY)&outwidthbuf, 1);
 	}
 
 	jpeg_finish_compress(cinfo);
 
 	return Qnil;
-}
-
-static enum oil_colorspace jpeg_cs_to_oil(J_COLOR_SPACE cs)
-{
-	switch(cs) {
-	case JCS_GRAYSCALE:
-		return OIL_CS_G;
-	case JCS_RGB:
-		return OIL_CS_RGB;
-	case JCS_CMYK:
-		return OIL_CS_CMYK;
-#ifdef JCS_EXTENSIONS
-	case JCS_EXT_RGBX:
-		return OIL_CS_RGBX;
-#endif
-	default:
-		rb_raise(rb_eRuntimeError, "Color space not recognized.");
-	}
 }
 
 /*
@@ -856,12 +832,10 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 {
 	struct readerdata *reader;
 	struct writerdata writer;
-	int state;
+	int state, width_out, ret;
 	struct write_jpeg_args args;
-	unsigned char *inwidthbuf, *outwidthbuf;
-	uint32_t width_in, width_out;
+	unsigned char *outwidthbuf;
 	VALUE opts;
-	enum oil_colorspace cs;
 
 	rb_scan_args(argc, argv, "01", &opts);
 
@@ -877,27 +851,29 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	writer.cinfo.err = &reader->jerr;
 	jpeg_create_compress(&writer.cinfo);
 
-	cs = jpeg_cs_to_oil(reader->dinfo.out_color_space);
-	width_in = reader->dinfo.output_width;
 	width_out = reader->scale_width;
-	inwidthbuf = malloc(width_in * CS_TO_CMP(cs));
-	outwidthbuf = malloc(width_out * CS_TO_CMP(cs));
-	preprocess_xscaler_init(&args.xs, width_in, width_out, cs);
-	yscaler_init(&args.ys, reader->dinfo.output_height, reader->scale_height,
-		width_out, cs);
+	ret = oil_libjpeg_init(&args.ol, &reader->dinfo, width_out,
+		reader->scale_height);
+	if (ret!=0) {
+		jpeg_destroy_compress(&writer.cinfo);
+		rb_raise(rb_eRuntimeError, "Unable to allocate memory.");
+	}
+	outwidthbuf = malloc(width_out * OIL_CMP(args.ol.os.cs));
+	if (!outwidthbuf) {
+		oil_libjpeg_free(&args.ol);
+		jpeg_destroy_compress(&writer.cinfo);
+		rb_raise(rb_eRuntimeError, "Unable to allocate memory.");
+	}
 
 	args.reader = reader;
 	args.opts = opts;
 	args.writer = &writer;
-	args.inwidthbuf = inwidthbuf;
 	args.outwidthbuf = outwidthbuf;
 	reader->locked = 1;
 	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
 
-	yscaler_free(&args.ys);
-	preprocess_xscaler_free(&args.xs);
+	oil_libjpeg_free(&args.ol);
 	free(outwidthbuf);
-	free(inwidthbuf);
 	jpeg_destroy_compress(&writer.cinfo);
 
 	if (state) {

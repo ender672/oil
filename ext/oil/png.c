@@ -1,6 +1,6 @@
 #include <ruby.h>
 #include <png.h>
-#include "resample.h"
+#include "oil_libpng.h"
 
 static ID id_read;
 
@@ -8,8 +8,8 @@ struct readerdata {
 	png_structp png;
 	png_infop info;
 	VALUE source_io;
-	uint32_t scale_width;
-	uint32_t scale_height;
+	int scale_width;
+	int scale_height;
 	int locked;
 };
 
@@ -210,89 +210,31 @@ struct each_args {
 	struct readerdata *reader;
 	png_structp wpng;
 	png_infop winfo;
-	unsigned char *inwidthbuf;
 	unsigned char *outwidthbuf;
-	unsigned char **scanlines;
-	struct yscaler ys;
-	struct preprocess_xscaler xs;
+	struct oil_libpng ol;
 };
 
-static VALUE each_interlace(struct each_args *args)
+static VALUE each2(struct each_args *args)
 {
 	struct readerdata *reader;
-	unsigned char **scanlines, *outwidthbuf;
-	uint32_t i, n, scaley;
-	uint16_t *yinbuf;
-	struct yscaler *ys;
-	struct preprocess_xscaler *xs;
+	unsigned char *outwidthbuf;
+	struct oil_libpng *ol;
+	int i, scaley;
 
 	reader = args->reader;
-	xs = &args->xs;
-	ys = &args->ys;
-	scanlines = args->scanlines;
 	outwidthbuf = args->outwidthbuf;
-	scaley = reader->scale_height;
-
-	png_write_info(args->wpng, args->winfo);
-	png_read_image(args->reader->png, (png_bytepp)args->scanlines);
-
-	n = 0;
-	for(i=0; i<scaley; i++) {
-		while ((yinbuf = yscaler_next(ys))) {
-			preprocess_xscaler_scale(xs, scanlines[n++], yinbuf);
-		}
-		yscaler_scale(ys, outwidthbuf, i);
-		png_write_row(args->wpng, outwidthbuf);
-	}
-
-	png_write_end(args->wpng, args->winfo);
-	return Qnil;
-}
-
-static VALUE each_interlace_none(struct each_args *args)
-{
-	struct readerdata *reader;
-	unsigned char *inwidthbuf, *outwidthbuf;
-	uint16_t *yinbuf;
-	struct preprocess_xscaler *xs;
-	struct yscaler *ys;
-	uint32_t i, scaley;
-
-	reader = args->reader;
-	xs = &args->xs;
-	inwidthbuf = args->inwidthbuf;
-	outwidthbuf = args->outwidthbuf;
-	ys = &args->ys;
+	ol = &args->ol;
 	scaley = reader->scale_height;
 
 	png_write_info(args->wpng, args->winfo);
 
 	for(i=0; i<scaley; i++) {
-		while ((yinbuf = yscaler_next(ys))) {
-			png_read_row(reader->png, inwidthbuf, NULL);
-			preprocess_xscaler_scale(xs, inwidthbuf, yinbuf);
-		}
-		yscaler_scale(ys, outwidthbuf, i);
+		oil_libpng_read_scanline(ol, outwidthbuf);
 		png_write_row(args->wpng, outwidthbuf);
 	}
 
 	png_write_end(args->wpng, args->winfo);
 	return Qnil;
-}
-
-static enum oil_colorspace png_cs_to_oil(png_byte cs)
-{
-	switch(cs) {
-	case PNG_COLOR_TYPE_GRAY:
-		return OIL_CS_G;
-	case PNG_COLOR_TYPE_GA:
-		return OIL_CS_GA;
-	case PNG_COLOR_TYPE_RGB:
-		return OIL_CS_RGB;
-	case PNG_COLOR_TYPE_RGBA:
-		return OIL_CS_RGBA;
-	}
-	rb_raise(rb_eRuntimeError, "Color space not recognized.");
 }
 
 /*
@@ -315,13 +257,9 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 	png_infop winfo;
 	png_structp wpng;
 	VALUE opts;
-	int cmp, state;
+	int cmp, state, ret;
 	struct each_args args;
-	uint32_t i, height, width;
 	png_byte ctype;
-	unsigned char **scanlines;
-	size_t row_bytes;
-	enum oil_colorspace cs;
 
 	rb_scan_args(argc, argv, "01", &opts);
 
@@ -332,7 +270,6 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 
 	cmp = png_get_channels(reader->png, reader->info);
 	ctype = png_get_color_type(reader->png, reader->info);
-	cs = png_cs_to_oil(ctype);
 
 	wpng = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL,
 		(png_error_ptr)error, (png_error_ptr)warning);
@@ -343,39 +280,24 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 		ctype, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
 		PNG_FILTER_TYPE_DEFAULT);
 
-	width = png_get_image_width(reader->png, reader->info);
-	height = png_get_image_height(reader->png, reader->info);
-	row_bytes = png_get_rowbytes(reader->png, reader->info);
-
 	args.reader = reader;
 	args.wpng = wpng;
 	args.winfo = winfo;
 	args.outwidthbuf = malloc(reader->scale_width * cmp);
-
-	preprocess_xscaler_init(&args.xs, width, reader->scale_width, cs);
-	yscaler_init(&args.ys, height, reader->scale_height, reader->scale_width, cs);
-
-	if (png_get_interlace_type(reader->png, reader->info) == PNG_INTERLACE_NONE) {
-		args.inwidthbuf = malloc(width * cmp);
-		rb_protect((VALUE(*)(VALUE))each_interlace_none, (VALUE)&args, &state);
-		free(args.inwidthbuf);
-	} else {
-		scanlines = malloc(height * sizeof(unsigned char *));
-		for (i=0; i<height; i++) {
-			scanlines[i] = malloc(row_bytes);
-		}
-
-		args.scanlines = scanlines;
-		rb_protect((VALUE(*)(VALUE))each_interlace, (VALUE)&args, &state);
-
-		for (i=0; i<height; i++) {
-			free(scanlines[i]);
-		}
-		free(scanlines);
+	if (!args.outwidthbuf) {
+		rb_raise(rb_eRuntimeError, "Unable to allocate memory.");
 	}
 
-	yscaler_free(&args.ys);
-	preprocess_xscaler_free(&args.xs);
+	ret = oil_libpng_init(&args.ol, reader->png, reader->info,
+		reader->scale_width, reader->scale_height);
+	if (ret!=0) {
+		free(args.outwidthbuf);
+		rb_raise(rb_eRuntimeError, "Unable to allocate memory.");
+	}
+
+	rb_protect((VALUE(*)(VALUE))each2, (VALUE)&args, &state);
+
+	oil_libpng_free(&args.ol);
 	free(args.outwidthbuf);
 	png_destroy_write_struct(&wpng, &winfo);
 
