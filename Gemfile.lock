@@ -1,9 +1,9 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    minitest (5.9.0)
-    rake (11.2.2)
-    rake-compiler (1.0.1)
+    minitest (5.11.3)
+    rake (12.3.2)
+    rake-compiler (1.0.7)
       rake
 
 PLATFORMS
@@ -14,4 +14,4 @@ DEPENDENCIES
   rake-compiler
 
 BUNDLED WITH
-   1.12.5
+   1.17.3
