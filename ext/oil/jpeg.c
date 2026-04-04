@@ -220,14 +220,17 @@ static void skip_input_data(j_decompress_ptr dinfo, long num_bytes)
 
 /* Ruby GC */
 
-static void deallocate(struct readerdata *reader)
+static void deallocate(void *ptr)
 {
+	struct readerdata *reader = ptr;
 	jpeg_destroy_decompress(&reader->dinfo);
 	free(reader);
 }
 
-static void mark(struct readerdata *reader)
+static void mark(void *ptr)
 {
+	struct readerdata *reader = ptr;
+
 	if (!NIL_P(reader->source_io)) {
 		rb_gc_mark(reader->source_io);
 	}
@@ -237,11 +240,23 @@ static void mark(struct readerdata *reader)
 	}
 }
 
+static size_t memsize(const void *ptr)
+{
+	return sizeof(struct readerdata);
+}
+
+static const rb_data_type_t jpeg_reader_type = {
+	"Oil::JPEGReader",
+	{ mark, deallocate, memsize },
+	0, 0,
+	RUBY_TYPED_FREE_IMMEDIATELY
+};
+
 static VALUE allocate(VALUE klass)
 {
 	struct readerdata *reader;
 	VALUE self;
-	self = Data_Make_Struct(klass, struct readerdata, mark, deallocate, reader);
+	self = TypedData_Make_Struct(klass, struct readerdata, &jpeg_reader_type, reader);
 
 	jpeg_std_error(&reader->jerr);
 	reader->jerr.error_exit = error_exit;
@@ -293,7 +308,7 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 	struct jpeg_decompress_struct *dinfo;
 	int i, marker_code;
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	dinfo = &reader->dinfo;
 
 	/* If source_io has already been set, then this is a re-used jpeg reader
@@ -315,10 +330,10 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 	if(!NIL_P(markers)) {
 		Check_Type(markers, T_ARRAY);
 		for (i=0; i<RARRAY_LEN(markers); i++) {
-			if (!SYMBOL_P(RARRAY_PTR(markers)[i])) {
+			if (!SYMBOL_P(RARRAY_AREF(markers, i))) {
 				rb_raise(rb_eTypeError, "Marker code is not a symbol.");
 			}
-			marker_code = sym_to_marker_code(RARRAY_PTR(markers)[i]);
+			marker_code = sym_to_marker_code(RARRAY_AREF(markers, i));
 			jpeg_save_markers(dinfo, marker_code, 0xFFFF);
 		}
 	}
@@ -344,9 +359,9 @@ static VALUE initialize(int argc, VALUE *argv, VALUE self)
 
 static VALUE num_components(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->num_components);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.num_components);
 }
 
 /*
@@ -361,9 +376,9 @@ static VALUE num_components(VALUE self)
 
 static VALUE output_components(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->output_components);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.output_components);
 }
 
 /*
@@ -378,9 +393,9 @@ static VALUE output_components(VALUE self)
 
 static VALUE out_color_components(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->out_color_components);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.out_color_components);
 }
 
 /*
@@ -399,11 +414,11 @@ static VALUE out_color_components(VALUE self)
 
 static VALUE jpeg_color_space(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
+	struct readerdata *reader;
 	ID id;
 
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	id = j_color_space_to_id(dinfo->jpeg_color_space);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	id = j_color_space_to_id(reader->dinfo.jpeg_color_space);
 
 	return ID2SYM(id);
 }
@@ -418,11 +433,11 @@ static VALUE jpeg_color_space(VALUE self)
 
 static VALUE out_color_space(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
+	struct readerdata *reader;
 	ID id;
 
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	id = j_color_space_to_id(dinfo->out_color_space);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	id = j_color_space_to_id(reader->dinfo.out_color_space);
 
 	return ID2SYM(id);
 }
@@ -438,7 +453,7 @@ static VALUE set_out_color_space(VALUE self, VALUE cs)
 {
 	struct readerdata *reader;
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	raise_if_locked(reader);
 
 	reader->dinfo.out_color_space = sym_to_j_color_space(cs);
@@ -458,9 +473,9 @@ static VALUE set_out_color_space(VALUE self, VALUE cs)
 
 static VALUE image_width(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->image_width);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.image_width);
 }
 
 /*
@@ -475,9 +490,9 @@ static VALUE image_width(VALUE self)
 
 static VALUE image_height(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->image_height);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.image_height);
 }
 
 /*
@@ -489,9 +504,9 @@ static VALUE image_height(VALUE self)
 
 static VALUE output_width(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->output_width);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.output_width);
 }
 
 /*
@@ -503,9 +518,9 @@ static VALUE output_width(VALUE self)
 
 static VALUE output_height(VALUE self)
 {
-	struct jpeg_decompress_struct * dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->output_height);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.output_height);
 }
 
 /*
@@ -522,13 +537,15 @@ static VALUE output_height(VALUE self)
 
 static VALUE markers(VALUE self)
 {
+	struct readerdata *reader;
 	struct jpeg_decompress_struct *dinfo;
 	jpeg_saved_marker_ptr marker;
 	VALUE hash, ary, key, val;
 
 	hash = rb_hash_new();
 
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	dinfo = &reader->dinfo;
 
 	for (marker=dinfo->marker_list; marker; marker=marker->next) {
 		key = marker_code_to_sym(marker->marker);
@@ -555,9 +572,9 @@ static VALUE markers(VALUE self)
 
 static VALUE scale_num(VALUE self)
 {
-	struct jpeg_decompress_struct *dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->scale_num);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.scale_num);
 }
 
 /*
@@ -573,7 +590,7 @@ static VALUE set_scale_num(VALUE self, VALUE scale_num)
 {
 	struct readerdata *reader;
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	raise_if_locked(reader);
 
 	reader->dinfo.scale_num = NUM2INT(scale_num);
@@ -592,9 +609,9 @@ static VALUE set_scale_num(VALUE self, VALUE scale_num)
 
 static VALUE scale_denom(VALUE self)
 {
-	struct jpeg_decompress_struct *dinfo;
-	Data_Get_Struct(self, struct jpeg_decompress_struct, dinfo);
-	return INT2FIX(dinfo->scale_denom);
+	struct readerdata *reader;
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
+	return INT2FIX(reader->dinfo.scale_denom);
 }
 
 /*
@@ -613,7 +630,7 @@ static VALUE set_scale_denom(VALUE self, VALUE scale_denom)
 {
 	struct readerdata *reader;
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	raise_if_locked(reader);
 
 	reader->dinfo.scale_denom = NUM2INT(scale_denom);
@@ -632,7 +649,7 @@ static VALUE set_scale_denom(VALUE self, VALUE scale_denom)
 static VALUE scale_width(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	return INT2FIX(reader->scale_width);
 }
 
@@ -647,7 +664,7 @@ static VALUE scale_width(VALUE self)
 static VALUE set_scale_width(VALUE self, VALUE scale_width)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	raise_if_locked(reader);
 	reader->scale_width = NUM2INT(scale_width);
 	return scale_width;
@@ -664,7 +681,7 @@ static VALUE set_scale_width(VALUE self, VALUE scale_width)
 static VALUE scale_height(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	return INT2FIX(reader->scale_height);
 }
 
@@ -679,7 +696,7 @@ static VALUE scale_height(VALUE self)
 static VALUE set_scale_height(VALUE self, VALUE scale_height)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 	raise_if_locked(reader);
 	reader->scale_height = NUM2INT(scale_height);
 	return scale_height;
@@ -839,7 +856,7 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 
 	rb_scan_args(argc, argv, "01", &opts);
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &jpeg_reader_type, reader);
 
 	if (!reader->scale_width) {
 		reader->scale_width = reader->dinfo.output_width;

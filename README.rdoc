@@ -44,11 +44,6 @@ Compile & run unit tests. Should show no warnings and no failing tests:
   $ rake compile
   $ rake test
 
-Valgrind should not complain (ruby-1.9.3p125, compiled with -O3):
-
-  $ valgrind /path/to/ruby -Iext:test test/test_jpeg.rb
-  $ valgrind /path/to/ruby -Iext:test test/test_png.rb
-
 Changes to the interpolator should be analyzed using ResampleScope:
 
   https://github.com/jsummers/resamplescope

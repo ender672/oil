@@ -4,7 +4,7 @@ require 'oil'
 require 'stringio'
 require 'helper'
 
-class TestJPEG < MiniTest::Test
+class TestJPEG < Minitest::Test
   # http://stackoverflow.com/a/2349470
   JPEG_DATA = "\
 \xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x01\x01\x00\x48\x00\x48\x00\
@@ -16,7 +16,7 @@ class TestJPEG < MiniTest::Test
 \x01\x01\x00\x00\x3f\x00\xd2\xcf\x20\xff\xd9".b
 
   BIG_JPEG = begin
-    s = ""
+    s = String.new
     r = Oil::JPEGReader.new(StringIO.new(JPEG_DATA))
     r.scale_width = 2000
     r.scale_height = 2000
@@ -157,7 +157,7 @@ class TestJPEG < MiniTest::Test
   end
 
   def test_marker_roundtrip
-    str = ""
+    str = String.new
     opts = { markers: { COM: ["hello world", "foobar123"]}}
     Oil::JPEGReader.new(jpeg_io).each(opts){ |s| str << s }
 

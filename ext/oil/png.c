@@ -50,18 +50,32 @@ static void write_data_fn(png_structp png_ptr, png_bytep data, png_size_t length
 
 /* Ruby GC */
 
-static void deallocate(struct readerdata *reader)
+static void deallocate(void *ptr)
 {
+	struct readerdata *reader = ptr;
 	png_destroy_read_struct(&reader->png, &reader->info, NULL);
 	free(reader);
 }
 
-static void mark(struct readerdata *reader)
+static void mark(void *ptr)
 {
+	struct readerdata *reader = ptr;
 	if (!NIL_P(reader->source_io)) {
 		rb_gc_mark(reader->source_io);
 	}
 }
+
+static size_t memsize(const void *ptr)
+{
+	return sizeof(struct readerdata);
+}
+
+static const rb_data_type_t png_reader_type = {
+	"Oil::PNGReader",
+	{ mark, deallocate, memsize },
+	0, 0,
+	RUBY_TYPED_FREE_IMMEDIATELY
+};
 
 static void allocate2(struct readerdata *reader)
 {
@@ -74,7 +88,7 @@ static VALUE allocate(VALUE klass)
 	struct readerdata *reader;
 	VALUE self;
 
-	self = Data_Make_Struct(klass, struct readerdata, mark, deallocate, reader);
+	self = TypedData_Make_Struct(klass, struct readerdata, &png_reader_type, reader);
 	allocate2(reader);
 	return self;
 }
@@ -92,7 +106,7 @@ static VALUE initialize(VALUE self, VALUE io)
 {
 	struct readerdata *reader;
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 
 	if (reader->info) {
 		png_destroy_read_struct(&reader->png, &reader->info, NULL);
@@ -124,7 +138,7 @@ static VALUE initialize(VALUE self, VALUE io)
 static VALUE width(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	return INT2FIX(png_get_image_width(reader->png, reader->info));
 }
 
@@ -138,7 +152,7 @@ static VALUE width(VALUE self)
 static VALUE height(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	return INT2FIX(png_get_image_height(reader->png, reader->info));
 }
 
@@ -153,7 +167,7 @@ static VALUE height(VALUE self)
 static VALUE scale_width(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	return INT2FIX(reader->scale_width);
 }
 
@@ -168,7 +182,7 @@ static VALUE scale_width(VALUE self)
 static VALUE set_scale_width(VALUE self, VALUE scale_width)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	raise_if_locked(reader);
 	reader->scale_width = NUM2INT(scale_width);
 	return scale_width;
@@ -185,7 +199,7 @@ static VALUE set_scale_width(VALUE self, VALUE scale_width)
 static VALUE scale_height(VALUE self)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	return INT2FIX(reader->scale_height);
 }
 
@@ -200,7 +214,7 @@ static VALUE scale_height(VALUE self)
 static VALUE set_scale_height(VALUE self, VALUE scale_height)
 {
 	struct readerdata *reader;
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 	raise_if_locked(reader);
 	reader->scale_height = NUM2INT(scale_height);
 	return scale_height;
@@ -241,14 +255,7 @@ static VALUE each2(struct each_args *args)
  * call-seq:
  *    reader.each(opts, &block) -> self
  *
- * Yields a series of binary strings that make up the output JPEG image.
- *
- * Options is a hash which may have the following symbols:
- *
- * :quality - JPEG quality setting. Betweein 0 and 100.
- * :markers - Custom markers to include in the output JPEG. Must be a hash where
- *   the keys are :APP[0-15] or :COM and the values are arrays of strings that
- *   will be inserted into the markers.
+ * Yields a series of binary strings that make up the output PNG image.
  */
 
 static VALUE each(int argc, VALUE *argv, VALUE self)
@@ -263,7 +270,7 @@ static VALUE each(int argc, VALUE *argv, VALUE self)
 
 	rb_scan_args(argc, argv, "01", &opts);
 
-	Data_Get_Struct(self, struct readerdata, reader);
+	TypedData_Get_Struct(self, struct readerdata, &png_reader_type, reader);
 
 	raise_if_locked(reader);
 	reader->locked = 1;

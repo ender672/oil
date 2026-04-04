@@ -6,8 +6,9 @@ Rake::ExtensionTask.new('oil') do |ext|
   ext.lib_dir = 'lib/oil'
 end
 
-s = Gem::Specification.new('oil', '0.2.1') do |s|
+s = Gem::Specification.new('oil', '0.3.0') do |s|
   s.license = 'MIT'
+  s.required_ruby_version = '>= 2.7'
   s.summary = 'Resize JPEG and PNG images.'
   s.description = 'Resize JPEG and PNG images, aiming for fast performance and low memory use.'
   s.authors = ['Timothy Elliott']
