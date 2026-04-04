@@ -29,7 +29,7 @@ enum oil_colorspace {
 	// error
 	OIL_CS_UNKNOWN = 0,
 
-	// greyscale - no color space conversions
+	// greyscale - no sRGB gamma space conversions
 	OIL_CS_G       = 0x0001,
 
 	// greyscale w/ alpha - uses premultiplied alpha
@@ -38,14 +38,17 @@ enum oil_colorspace {
 	// sRGB - input will be converted to linear RGB during processing
 	OIL_CS_RGB     = 0x0003,
 
-	// sRGB w/ padding - same as OIL_CS_RGB, but padded with an extra byte
-	OIL_CS_RGBX    = 0x0004, // sRGB w/ padding
-
 	// sRGB w/ alpha - sRGB to linear conversion and premultiplied alpha
-	OIL_CS_RGBA    = 0x0104, // sRGB w/ alpha
+	OIL_CS_RGBA    = 0x0104,
 
-	// CMYK - no color space conversions
-	OIL_CS_CMYK    = 0x0204, // four color CMYK
+	// sRGB w/ alpha - alpha first, then sRGB to linear conversion and premultiplied alpha
+	OIL_CS_ARGB    = 0x0304,
+
+	// sRGB w/o alpha - 4 bytes per pixel, 4th byte (X) is ignored
+	OIL_CS_RGBX    = 0x0404,
+
+	// no color space conversions
+	OIL_CS_CMYK    = 0x0204,
 };
 
 /**
@@ -54,7 +57,8 @@ enum oil_colorspace {
 #define OIL_CMP(x) ((x)&0xFF)
 
 /**
- * Struct to hold state for scaling.
+ * Struct to hold state for scaling. Changing these will produce unpredictable
+ * results.
  */
 struct oil_scale {
 	int in_height; // input image height.
@@ -64,15 +68,14 @@ struct oil_scale {
 	enum oil_colorspace cs; // color space of input & output.
 	int in_pos; // current row of input image.
 	int out_pos; // current row of output image.
-	int taps; // number of taps required to perform scaling.
-	int target; // where the ring buffer should be on next scaling.
-	int sl_len; // length in bytes of a row.
-	float ty; // sub-pixel offset for next scaling.
 	float *coeffs_y; // buffer for holding temporary y-coefficients.
 	float *coeffs_x; // buffer for holding precalculated coefficients.
-	int *borders; // holds precalculated coefficient rotation points.
+	int *borders_x; // holds precalculated coefficient rotation points.
+	int *borders_y; // coefficient rotation points for y-scaling.
+	float *sums_y; // buffer of intermediate sums for y-scaling.
 	float *rb; // ring buffer holding scanlines.
-	float **virt; // space to provide scanline pointers for scaling.
+	float *tmp_coeffs; // temporary buffer for calculating coeffs.
+	void *buf; // single backing allocation for all buffers above.
 };
 
 /**
@@ -81,7 +84,37 @@ struct oil_scale {
  * so explicityly calling oil_global_init() is only needed if there are
  * concurrency concerns.
  */
-void oil_global_init();
+void oil_global_init(void);
+
+/**
+ * Calculate the buffer size needed for an oil scaler struct.
+ * @in_height: Height, in pixels, of the input image.
+ * @out_height: Height, in pixels, of the output image.
+ * @in_width: Width, in pixels, of the input image.
+ * @out_width: Width, in pixels, of the output image.
+ * @cs: Color space of the input/output images.
+ *
+ * Returns the required buffer size in bytes.
+ */
+int oil_scale_alloc_size(int in_height, int out_height, int in_width,
+	int out_width, enum oil_colorspace cs);
+
+/**
+ * Initialize an oil scaler struct with a pre-allocated buffer.
+ * @os: Pointer to the scaler struct to be initialized.
+ * @in_height: Height, in pixels, of the input image.
+ * @out_height: Height, in pixels, of the output image.
+ * @in_width: Width, in pixels, of the input image.
+ * @out_width: Width, in pixels, of the output image.
+ * @cs: Color space of the input/output images.
+ * @buf: Pre-allocated buffer for internal use.
+ *
+ * Returns 0 on success.
+ * Returns -1 if an argument is bad.
+ */
+int oil_scale_init_allocated(struct oil_scale *os, int in_height,
+	int out_height, int in_width, int out_width, enum oil_colorspace cs,
+	void *buf);
 
 /**
  * Initialize an oil scaler struct.
@@ -100,19 +133,26 @@ int oil_scale_init(struct oil_scale *os, int in_height, int out_height,
 	int in_width, int out_width, enum oil_colorspace cs);
 
 /**
- * Free heap allocations associated with a yscaler struct.
- * @ys: Pointer to the yscaler struct to be freed.
+ * Reset rows counters in an oil scaler struct.
+ * @os: Pointer to the scaler struct to be reseted.
+ */
+void oil_scale_restart(struct oil_scale *);
+
+/**
+ * Free heap allocations associated with an oil scaler struct.
+ * @os: Pointer to the scaler struct to be freed.
  */
 void oil_scale_free(struct oil_scale *os);
 
 /**
- * Get a pointer to the next scanline to be filled in the ring buffer.
- * @ys: Pointer to the yscaler struct to advance.
+ * Return the number of input scanlines needed before the next output scanline
+ * can be produced.
+ * @os: Pointer to the oil scaler struct.
  *
  * Returns 0 if no more input lines are needed to produce the next output line.
  * Otherwise, returns the number of input lines that are needed.
  */
-int oil_scale_slots(struct oil_scale *ys);
+int oil_scale_slots(struct oil_scale *os);
 
 /**
  * Ingest & buffer an input scanline. Input is unsigned chars.
@@ -124,10 +164,10 @@ void oil_scale_in(struct oil_scale *os, unsigned char *in);
 /**
  * Scale previously ingested & buffered contents to produce the next scaled output
  * scanline.
- * @ys: Pointer to the scaler struct.
+ * @os: Pointer to the scaler struct.
  * @out: Pointer to the buffer where the output scanline will be written.
  */
-void oil_scale_out(struct oil_scale *ys, unsigned char *out);
+void oil_scale_out(struct oil_scale *os, unsigned char *out);
 
 /**
  * Calculate an output ratio that preserves the input aspect ratio.
@@ -143,7 +183,7 @@ void oil_scale_out(struct oil_scale *ys, unsigned char *out);
  * Returns -1 if an argument is bad.
  * Returns -3 if an adjusted dimension would be out of range.
  */
-int oil_fix_ratio(int src_width, int src_height, int *out_width,
+ int oil_fix_ratio(int src_width, int src_height, int *out_width,
 	int *out_height);
 
 #endif
