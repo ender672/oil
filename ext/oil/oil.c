@@ -21,6 +21,7 @@ void Init_png();
 void Init_oil()
 {
 	VALUE mOil;
+	oil_global_init();
 	mOil = rb_const_get(rb_cObject, rb_intern("Oil"));
 	rb_define_singleton_method(mOil, "fix_ratio", rb_fix_ratio, 4);
 	Init_jpeg();
