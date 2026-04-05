@@ -15,6 +15,8 @@ Gem::Specification.new do |s|
     lib/oil.rb
     ext/oil/oil_resample.c
     ext/oil/oil_resample.h
+    ext/oil/oil_resample_internal.h
+    ext/oil/oil_resample_sse2.c
     ext/oil/oil_libjpeg.c
     ext/oil/oil_libjpeg.h
     ext/oil/oil_libpng.c

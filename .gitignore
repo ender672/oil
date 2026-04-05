@@ -1,5 +1,8 @@
 pkg
 tmp
 lib/oil/oil.so
+ext/oil/*.o
+ext/oil/*.so
+ext/oil/Makefile
 .autotest
 .tags
