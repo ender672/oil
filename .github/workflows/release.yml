@@ -24,9 +24,12 @@ jobs:
       id-token: write
       contents: write
     steps:
+      - uses: rubygems/configure-rubygems-credentials@main
+        with:
+          role-to-assume: rg_oidc_akr_pm49av9j25o9ybpz8azc
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
       - run: gem build oil.gemspec
-      - uses: rubygems/release-gem@v1
+      - run: gem push oil-*.gem
