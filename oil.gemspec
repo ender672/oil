@@ -29,7 +29,11 @@ Gem::Specification.new do |s|
     test/test_jpeg.rb
     test/test_png.rb
   }
-  s.homepage = 'http://github.com/ender672/oil'
+  s.homepage = 'https://github.com/ender672/oil'
+  s.metadata = {
+    'source_code_uri' => 'https://github.com/ender672/oil',
+    'bug_tracker_uri' => 'https://github.com/ender672/oil/issues'
+  }
   s.extensions << 'ext/oil/extconf.rb'
   s.extra_rdoc_files = ['README.rdoc']
 end
